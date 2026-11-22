@@ -1,0 +1,67 @@
+.mountain-card {
+  position: relative;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  margin-bottom: 14px;
+  background: #0b1210;
+}
+
+.mountain-canvas { position: relative; height: 300px; touch-action: none; }
+.mountain-canvas canvas { display: block; width: 100%; height: 100%; }
+.mountain-loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
+
+.mountain-hud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 12px;
+  background: linear-gradient(180deg, transparent, rgba(5, 7, 6, 0.85));
+  pointer-events: none;
+}
+.mountain-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
+.mountain-info b { color: var(--fg); font-size: 15px; }
+.ghost-note { color: #d7e3ff; }
+.mountain-buttons { display: flex; gap: 6px; pointer-events: auto; }
+.mtn-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid rgba(238, 244, 240, 0.18);
+  background: rgba(5, 7, 6, 0.6);
+  color: var(--fg);
+  font-size: 16px;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.mountain-top {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+  font-size: 12px;
+}
+.mountain-top span { padding: 4px 9px; border-radius: 99px; background: rgba(5, 7, 6, 0.55); color: var(--fg); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.mountain-top span:empty { display: none; }
+.mountain-card.full .mountain-top { top: calc(12px + env(safe-area-inset-top, 0px)); }
+
+.mountain-card.full {
+  position: absolute;
+  inset: 0;
+  z-index: 13;
+  margin: 0;
+  border-radius: inherit;
+  border: 0;
+}
+.mountain-card.full .mountain-canvas { height: 100%; }
+.mountain-card.full .mountain-hud { padding: 16px 16px calc(20px + env(safe-area-inset-bottom, 0px)); }

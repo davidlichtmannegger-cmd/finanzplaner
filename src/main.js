@@ -4,6 +4,7 @@ import './styles/components.css';
 import './styles/rewards.css';
 import './styles/goals.css';
 import './styles/tools.css';
+import './styles/mountain.css';
 import { createNav } from './ui/nav.js';
 import { createSheet, createToast } from './ui/sheet.js';
 import { formSheet } from './ui/forms.js';
@@ -11,6 +12,7 @@ import { enableReorder } from './ui/reorder.js';
 import { esc, euro, workMinutes, parseAmount, longDate } from './ui/format.js';
 import { calendarMonth, whatIf } from './logic/tools.js';
 import * as toolViews from './tool-views.js';
+import { createMountain } from './mountain/index.js';
 import { makeGoalImages } from './ui/image.js';
 import { connectFirebase, isConfigured } from './firebase.js';
 import { createAuth, authMessage } from './auth.js';
@@ -42,6 +44,56 @@ const painted = new Set();
 const lastCount = new Map();
 const savingAchievements = new Set();
 
+const mountain = createMountain({ reduceMotion });
+document.addEventListener('visibilitychange', () => mountain.setActive(nav.current === 2 && !document.hidden));
+mountain.onSoundToggle((on) => backend?.setProfile({ settings: { ...(snap?.profile?.settings || {}), bergsounds: on } }));
+
+function openWeatherPlace() {
+  const el = document.createElement('div');
+  el.className = 'tool-sheet';
+  const current = snap.profile?.wetterOrt;
+  el.innerHTML = `
+    <div class="label sheet-title">Ort fürs Bergwetter</div>
+    <p class="hint" style="text-align:center;margin-top:0">Das Wetter am Berg folgt dem echten Wetter an deinem Ort (Open-Meteo, ohne Konto). Gespeichert wird nur der Ort auf etwa 1 km gerundet.${current ? ` Aktuell: <b>${esc(current.name)}</b>.` : ''}</p>
+    <button class="cta" data-place="geo">📍 Meinen Standort verwenden</button>
+    <form class="wish-new" data-place-search><input class="input" name="q" placeholder="Oder Ort suchen, z. B. Frankfurt" autocomplete="off"><button class="ghost" type="submit">Suchen</button></form>
+    <div class="card list" data-place-results hidden></div>
+    ${current ? '<button class="ghost wide danger" data-place="off">Bergwetter ausschalten</button>' : ''}
+    <div class="form-error" data-place-msg></div>`;
+  const msg = el.querySelector('[data-place-msg]');
+  const save = async (place) => {
+    await backend.setProfile({ wetterOrt: place });
+    sheet.close();
+    toast(place ? `Bergwetter für ${place.name}` : 'Bergwetter aus');
+  };
+  el.querySelector('[data-place="geo"]').addEventListener('click', async () => {
+    msg.textContent = 'Standort wird abgefragt …';
+    try {
+      const { currentPlace } = await import('./mountain/weather-service.js');
+      await save(await currentPlace());
+    } catch (err) {
+      msg.textContent = err.message;
+    }
+  });
+  el.querySelector('[data-place="off"]')?.addEventListener('click', () => save(null));
+  el.querySelector('[data-place-search]').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const q = e.target.q.value.trim();
+    if (q.length < 2) return;
+    const box = el.querySelector('[data-place-results]');
+    try {
+      const { searchPlace } = await import('./mountain/weather-service.js');
+      const hits = await searchPlace(q);
+      box.hidden = false;
+      box.innerHTML = hits.length ? hits.map((h, i) => `<button class="row" data-hit="${i}"><div class="t"><b>${esc(h.name)}</b></div></button>`).join('') : '<div class="hint" style="padding:8px">Nichts gefunden</div>';
+      box.querySelectorAll('[data-hit]').forEach((b) => b.addEventListener('click', () => save(hits[Number(b.dataset.hit)])));
+    } catch (err) {
+      msg.textContent = err.message;
+    }
+  });
+  sheet.open(el);
+}
+
 const fx = createFx({ canvas: $('#fx'), host: $('#app'), reduceMotion, soundsOn: () => snap?.profile?.settings?.sounds === true });
 
 const visitedKey = () => `finanzplaner:ziele-besucht:${today()}`;
@@ -57,6 +109,7 @@ const nav = createNav({
   pages: pagesEl,
   tabs: [...document.querySelectorAll('.tab')],
   onChange: (i) => {
+    mountain.setActive(i === 2 && !document.hidden);
     if (i !== 2) return;
     animate($('#page-goals'), 'goals', true);
     if (!visitedGoals()) {
@@ -153,6 +206,9 @@ function render() {
   autoBook();
   celebrate();
   celebrateReady();
+  mountain.mount($('#mountain-slot'));
+  mountain.update(snap, derived, today());
+  mountain.setActive(nav.current === 2 && !document.hidden);
 }
 
 async function autoBook() {
@@ -242,6 +298,7 @@ function openExpense(existing = null, preset = {}) {
       } else if (doc.impuls) {
         fx.sound('fail');
         fx.buzz([20, 40, 20]);
+        mountain.slip(doc.betrag);
         const delay = impulseDelayDays(doc.betrag, derived.savingsSum);
         toast(settings().roast !== false ? `${randomOf(ROASTS)} ${XP.label(XP.impulse)} XP` : `Impulskauf · ${XP.label(XP.impulse)} XP · Ziel ${delay.toFixed(1).replace('.', ',')} Tage später`);
       } else {
@@ -470,12 +527,14 @@ function celebrateReady() {
   ready.forEach((g) => celebratingReady.add(g.id));
   const [first] = ready;
   Promise.all(ready.map((g) => backend.update('goals', g.id, { bereitGefeiert: true }))).finally(() => ready.forEach((g) => celebratingReady.delete(g.id)));
+  nav.go(2);
   setTimeout(() => {
-    if (first.kosten > 100) fx.fireworks(3);
+    const flying = mountain.celebrate(first.id);
+    if (first.kosten > 100) fx.fireworks(flying ? 5 : 3);
     fx.confetti(null, 120);
     fx.sound('win');
-    toast(`${first.name} ist bezahlbar! Markier es als gekauft, sobald du es hast.`);
-  }, 900);
+    toast(`Gipfel erreicht: ${first.name} ist bezahlbar! Markier es als gekauft, sobald du es hast.`);
+  }, 1200);
 }
 
 function openReserve(take = false) {
@@ -849,9 +908,10 @@ pagesEl.addEventListener('click', async (e) => {
     const extra = key === 'aufrunden' && on ? { aufrundenSeit: Date.now(), aufrundenStufe: settings().aufrundenStufe || 1 } : {};
     await backend.setProfile({ settings: { ...settings(), [key]: on, ...extra } });
     if (key === 'sounds' && on) fx.sound('xp');
-    const names = { roast: 'Roast-Modus', sounds: 'Sounds', aufrunden: 'Aufrunden' };
+    const names = { roast: 'Roast-Modus', sounds: 'Sounds', aufrunden: 'Aufrunden', bergsounds: 'Bergsounds' };
     return toast(`${names[key]} ${on ? 'an' : 'aus'}`);
   }
+  if (t.id === 'weather-place') return openWeatherPlace();
   if (t.dataset.roundupStep !== undefined) return openRoundUpStep();
   if (t.dataset.roundupDone !== undefined) return roundUpDone();
   if (t.dataset.tool) return openTool(t.dataset.tool);

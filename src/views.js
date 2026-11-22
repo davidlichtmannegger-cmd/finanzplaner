@@ -164,6 +164,7 @@ export function goals(snap, d) {
   return `
     <h1>Ziele</h1>
     <div class="sub">Sparrate ${euro(d.savingsSum)} im Monat · Termine rechnen sich automatisch</div>
+    <div id="mountain-slot"></div>
     ${reserveNote}
     <div id="goal-list">${cards || `<div class="card empty"><div class="ico">${ICON.peak}</div><div>Noch keine offenen Ziele.</div></div>`}</div>
     <button class="ghost wide" id="goal-add">+ Neues Ziel</button>
@@ -196,6 +197,8 @@ export function profile(snap, d, { mode, user, syncPending }) {
     <div class="card">
       <div class="toggle">Roast-Modus <button class="sw ${snap.profile?.settings?.roast !== false ? 'on' : ''}" data-setting="roast" aria-label="Roast-Modus"></button></div>
       <div class="toggle">Sounds <button class="sw ${snap.profile?.settings?.sounds ? 'on' : ''}" data-setting="sounds" aria-label="Sounds"></button></div>
+      <div class="toggle">Bergsounds <button class="sw ${snap.profile?.settings?.bergsounds ? 'on' : ''}" data-setting="bergsounds" aria-label="Bergsounds"></button></div>
+      <div class="toggle"><span>Bergwetter<small class="toggle-hint">${snap.profile?.wetterOrt ? esc(snap.profile.wetterOrt.name) : 'aus – nur Tages- und Jahreszeit'}</small></span><button class="mini" id="weather-place">${snap.profile?.wetterOrt ? 'Ändern' : 'Ort wählen'}</button></div>
       <div class="toggle"><span>Virtuelles Aufrunden<small class="toggle-hint">${snap.profile?.settings?.aufrunden ? `auf volle ${snap.profile.settings.aufrundenStufe || 1} € · <button class="link" data-roundup-step>ändern</button>` : 'Ausgaben aufrunden, Differenz sparen'}</small></span><button class="sw ${snap.profile?.settings?.aufrunden ? 'on' : ''}" data-setting="aufrunden" aria-label="Virtuelles Aufrunden"></button></div>
     </div>
     ${d.reached.length ? `<div class="card"><div class="label" style="margin-bottom:12px">Trophäen · ${d.reached.length}</div><div class="trophies">${d.reached.map((g) => `<button class="trophy" data-goal="${esc(g.id)}">${g.bildThumb ? `<img src="${esc(g.bildThumb)}" alt="">` : `<div class="trophy-fill" style="background:${esc(g.farbe || '#c9a24a')}">⛰</div>`}<span>${esc(g.name)}</span><em>Freigeschaltet</em></button>`).join('')}</div></div>` : ''}
