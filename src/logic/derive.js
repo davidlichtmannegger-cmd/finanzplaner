@@ -1,9 +1,11 @@
-import { planGoals, potBalance, nextOccurrence, monthlySum } from './schedule.js';
+import { planGoals, planReserve, potBalance, nextOccurrence, monthlySum } from './schedule.js';
 import { levelFor, totalXp, streak, dailyQuests, weekChallenge, pendingConfirmations, taschengeld, achievementState, daysSinceRewe, isRewe, weekStart } from './rewards.js';
 
 export function derive(snap, todayYmd, { hour = 12, visitedGoals = false } = {}) {
   const balance = potBalance(snap.ledger || []);
-  const plan = planGoals({ balance, todayYmd, rules: snap.savingsRules || [], goals: snap.goals || [] });
+  const reserveZiel = Math.max(0, Number(snap.profile?.notfall) || 0);
+  const plan = planGoals({ balance, todayYmd, rules: snap.savingsRules || [], goals: snap.goals || [], reserve: reserveZiel });
+  const reserve = planReserve({ balance, todayYmd, rules: snap.savingsRules || [], reserve: reserveZiel });
   const month = todayYmd.slice(0, 7);
   const expenses = snap.expenses || [];
   const monthExpenses = expenses.filter((e) => e.datum?.startsWith(month));
@@ -33,6 +35,7 @@ export function derive(snap, todayYmd, { hour = 12, visitedGoals = false } = {})
   return {
     balance,
     plan,
+    reserve,
     nextGoal: plan[0] || null,
     reached,
     nextPayday: nextOccurrence(snap.income || [], todayYmd),

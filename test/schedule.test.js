@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planGoals, potBalance, dueBookings, nextOccurrence, upcoming, monthlySum } from '../src/logic/schedule.js';
+import { planGoals, planReserve, potBalance, dueBookings, nextOccurrence, upcoming, monthlySum } from '../src/logic/schedule.js';
 import { monthlyDates, dateInMonth, daysBetween } from '../src/logic/dates.js';
 import { defaultData } from '../src/data/defaults.js';
 
@@ -54,6 +54,20 @@ test('Vorhandenes Guthaben wird den Zielen der Reihe nach zugeteilt', () => {
   assert.equal(plan[1].zugeteilt, 500);
   assert.ok(Math.abs(plan[1].fortschritt - 500 / 1130) < 1e-9);
   assert.equal(plan[2].zugeteilt, 0);
+});
+
+test('Notfalltopf wird zuerst gefüllt und verschiebt die Ziele', () => {
+  const d = defaultData('2026-11-22');
+  const ohne = planGoals({ balance: 485, todayYmd: '2026-11-22', rules: d.savingsRules, goals: d.goals });
+  const mit = planGoals({ balance: 485, todayYmd: '2026-11-22', rules: d.savingsRules, goals: d.goals, reserve: 300 });
+  assert.equal(ohne[0].zugeteilt, 485);
+  assert.equal(mit[0].zugeteilt, 185);
+  assert.equal(ohne[0].datum, '2026-12-16');
+  assert.equal(mit[0].datum, '2026-12-29');
+  const r = planReserve({ balance: 185, todayYmd: '2026-11-22', rules: d.savingsRules, reserve: 300 });
+  assert.deepEqual([r.betrag, r.voll, r.datum], [185, false, '2026-11-29']);
+  assert.equal(planReserve({ balance: 485, todayYmd: '2026-11-22', rules: d.savingsRules, reserve: 300 }).voll, true);
+  assert.equal(planReserve({ balance: 0, todayYmd: '2026-11-22', rules: d.savingsRules, reserve: 0 }).voll, true);
 });
 
 test('Erreichte Ziele fallen raus, Reihenfolge zählt', () => {

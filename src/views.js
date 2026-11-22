@@ -39,6 +39,11 @@ const weekCard = (w) => {
   </div>`;
 };
 
+const goalThumb = (g, n, pct) =>
+  g.bildThumb
+    ? `<div class="thumb photo"><img src="${esc(g.bildThumb)}" alt="" style="filter:grayscale(${100 - pct}%) brightness(${0.75 + pct / 400})"><span>${n}</span></div>`
+    : `<div class="thumb" style="background:${esc(g.farbe || '#1d3fae')};filter:grayscale(${100 - pct}%)">${n}</div>`;
+
 const initials = (s) => esc((s || '?').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 2).toUpperCase() || '?');
 
 export function overview(snap, d, { now = new Date() } = {}) {
@@ -70,6 +75,7 @@ export function overview(snap, d, { now = new Date() } = {}) {
       <div class="big num" data-count="${d.balance}" data-suffix=" <small>€</small>">0 <small>€</small></div>
       ${goalBlock}
     </div>
+    ${d.reserve.ziel && !d.reserve.voll ? `<div class="card reserve-mini"><div class="xp-head"><div class="label">Notfalltopf wird gefüllt</div><span class="num xp-num">${euro(d.reserve.betrag)} / ${euro(d.reserve.ziel)}</span></div><div class="bar"><i data-w="${Math.max(2, Math.round(d.reserve.fortschritt * 100))}"></i></div></div>` : ''}
     <div class="grid2">
       ${tile('Nächster Zahltag', d.nextPayday ? shortDate(d.nextPayday.datum) : '–', d.nextPayday ? `+${euro(d.nextPayday.betrag)} · ${inDays(d.nextPayday.tageBis)}` : 'keine Einnahmen', false)}
       ${tile('Dauerauftrag', d.nextTransfer ? shortDate(d.nextTransfer.datum) : '–', d.nextTransfer ? `${euro(d.nextTransfer.betrag)} → PayPal` : 'keiner angelegt', false)}
@@ -134,7 +140,7 @@ export function goals(snap, d) {
       const pct = Math.round(g.fortschritt * 100);
       return `<div class="card goal" data-id="${esc(g.id)}">
         <button class="handle" aria-label="${esc(g.name)} verschieben">${ICON.grip}</button>
-        <div class="thumb" style="background:${esc(g.farbe || '#1d3fae')};filter:grayscale(${100 - pct}%)">${i + 1}</div>
+        ${goalThumb(g, i + 1, pct)}
         <button class="t goal-open" data-goal="${esc(g.id)}">
           <b>${esc(g.name)}</b>
           <div class="bar"><i class="${g.fortschritt >= 0.9 ? 'gold' : ''}" data-w="${Math.max(pct, 2)}"></i></div>
@@ -145,12 +151,16 @@ export function goals(snap, d) {
     .join('');
   const reached = d.reached.length
     ? `<div class="label group-label">Erreicht</div><div class="card list">${d.reached
-        .map((g) => `<button class="row" data-goal="${esc(g.id)}"><div class="ico" style="color:var(--gold)">✓</div><div class="t"><b>${esc(g.name)}</b><span>gekauft am ${esc(weekdayDate(g.erreichtAm))}</span></div><div class="amt num">${euro(g.kosten)}</div></button>`)
+        .map((g) => `<button class="row" data-goal="${esc(g.id)}">${g.bildThumb ? `<img class="ico trophy-ico" src="${esc(g.bildThumb)}" alt="">` : '<div class="ico" style="color:var(--gold)">✓</div>'}<div class="t"><b>${esc(g.name)}</b><span>gekauft am ${esc(weekdayDate(g.erreichtAm))}</span></div><div class="amt num">${euro(g.kosten)}</div></button>`)
         .join('')}</div>`
+    : '';
+  const reserveNote = d.reserve.ziel
+    ? `<div class="card reserve-mini"><div class="xp-head"><div class="label">Notfalltopf</div><span class="num xp-num">${euro(d.reserve.betrag)} / ${euro(d.reserve.ziel)}</span></div><div class="bar"><i data-w="${Math.max(2, Math.round(d.reserve.fortschritt * 100))}"></i></div><div class="meta-row"><span>${d.reserve.voll ? 'gefüllt – alles Weitere geht in die Ziele' : 'wird zuerst gefüllt'}</span><span>${d.reserve.voll ? '✓' : d.reserve.datum ? `voll am ${esc(shortDate(d.reserve.datum))}` : ''}</span></div></div>`
     : '';
   return `
     <h1>Ziele</h1>
     <div class="sub">Sparrate ${euro(d.savingsSum)} im Monat · Termine rechnen sich automatisch</div>
+    ${reserveNote}
     <div id="goal-list">${cards || `<div class="card empty"><div class="ico">${ICON.peak}</div><div>Noch keine offenen Ziele.</div></div>`}</div>
     <button class="ghost wide" id="goal-add">+ Neues Ziel</button>
     ${reached}
@@ -182,6 +192,13 @@ export function profile(snap, d, { mode, user, syncPending }) {
     <div class="card">
       <div class="toggle">Roast-Modus <button class="sw ${snap.profile?.settings?.roast !== false ? 'on' : ''}" data-setting="roast" aria-label="Roast-Modus"></button></div>
       <div class="toggle">Sounds <button class="sw ${snap.profile?.settings?.sounds ? 'on' : ''}" data-setting="sounds" aria-label="Sounds"></button></div>
+    </div>
+    ${d.reached.length ? `<div class="card"><div class="label" style="margin-bottom:12px">Trophäen · ${d.reached.length}</div><div class="trophies">${d.reached.map((g) => `<button class="trophy" data-goal="${esc(g.id)}">${g.bildThumb ? `<img src="${esc(g.bildThumb)}" alt="">` : `<div class="trophy-fill" style="background:${esc(g.farbe || '#c9a24a')}">⛰</div>`}<span>${esc(g.name)}</span><em>Freigeschaltet</em></button>`).join('')}</div></div>` : ''}
+    <div class="card">
+      <div class="label section-head">Notfalltopf<span class="num">${d.reserve.ziel ? `${euro(d.reserve.betrag)} / ${euro(d.reserve.ziel)}` : 'aus'}</span></div>
+      ${d.reserve.ziel ? `<div class="bar"><i data-w="${Math.max(2, Math.round(d.reserve.fortschritt * 100))}"></i></div>` : ''}
+      <p class="hint">Ein Puffer für Unvorhergesehenes. Der Spar-Topf füllt ihn zuerst, danach bekommen die Ziele Geld. Nimmst du etwas heraus, wird er automatisch wieder aufgefüllt.</p>
+      <div class="confirm-actions"><button class="ghost" id="reserve-set">${d.reserve.ziel ? 'Höhe ändern' : 'Notfalltopf einrichten'}</button>${d.reserve.ziel && d.reserve.betrag > 0 ? '<button class="ghost danger" id="reserve-take">Geld entnehmen</button>' : ''}</div>
     </div>
     <div class="card">
       <div class="label section-head">Spar-Topf (PayPal)<span class="num">${euro(d.balance, { cents: true })}</span></div>

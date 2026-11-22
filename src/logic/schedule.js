@@ -33,11 +33,11 @@ export function dueBookings(rules, ledger, since, todayYmd) {
     .filter((e) => !booked.has(e.id));
 }
 
-export function planGoals({ balance, todayYmd, rules, goals, horizonDays = HORIZON_DAYS }) {
+export function planGoals({ balance, todayYmd, rules, goals, reserve = 0, horizonDays = HORIZON_DAYS }) {
   const open = goals.filter((g) => !g.erreichtAm).sort((a, b) => a.reihenfolge - b.reihenfolge);
   const events = upcoming(rules, addDays(todayYmd, 1), addDays(todayYmd, horizonDays));
   const result = [];
-  let cumulative = 0;
+  let cumulative = Math.max(0, reserve);
   let running = balance;
   let i = 0;
   let lastDate = todayYmd;
@@ -74,4 +74,17 @@ export function nextOccurrence(items, todayYmd, { includeToday = true } = {}) {
 
 export function monthlySum(items, todayYmd) {
   return items.filter((i) => !i.pausiert && isActive(i, todayYmd)).reduce((s, i) => s + (i.betrag || 0), 0);
+}
+
+export function planReserve({ balance, todayYmd, rules, reserve = 0, horizonDays = HORIZON_DAYS }) {
+  const ziel = Math.max(0, reserve);
+  const betrag = Math.max(0, Math.min(balance, ziel));
+  if (!ziel) return { ziel: 0, betrag: 0, voll: true, datum: todayYmd, fortschritt: 1 };
+  if (balance >= ziel) return { ziel, betrag, voll: true, datum: todayYmd, fortschritt: 1 };
+  let running = balance;
+  for (const e of upcoming(rules, addDays(todayYmd, 1), addDays(todayYmd, horizonDays))) {
+    running += e.betrag;
+    if (running >= ziel) return { ziel, betrag, voll: false, datum: e.datum, fortschritt: betrag / ziel };
+  }
+  return { ziel, betrag, voll: false, datum: null, fortschritt: betrag / ziel };
 }
