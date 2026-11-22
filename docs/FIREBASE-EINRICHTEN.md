@@ -34,7 +34,15 @@ Dauer: ca. 10 Minuten. Kosten: 0 € (Spark-Tarif, keine Kreditkarte nötig).
    - deine GitHub-Pages-Domain, z. B. **`deinname.github.io`** (bekommst du, sobald das Repo steht).
    - `localhost` ist schon eingetragen.
 
+## 5. Sicherheitsregeln eintragen (nur dein Konto darf deine Daten sehen)
+1. Links: **Firestore Database** → Reiter **Regeln**.
+2. Den gesamten Text im Editor löschen.
+3. Den Inhalt der Datei `firestore.rules` aus dem Projekt einfügen (ich schicke ihn dir auch im Chat).
+4. **Veröffentlichen** klicken.
+
+Die Regel erlaubt Lesen und Schreiben nur unter `users/{deineUid}` und nur, wenn genau dieses Konto angemeldet ist. Alles andere ist gesperrt.
+
 ## Was ich danach mache
-- Konfiguration in `src/firebase-config.js` eintragen.
-- In Etappe 1: Sicherheitsregeln so setzen, dass **nur dein eingeloggter Account** unter `users/{deineUid}` lesen und schreiben darf.
+- Konfiguration in `src/firebase-config.js` eintragen und deployen.
+- Beim ersten Login werden deine Startwerte (Einnahmen, Daueraufträge, Ziele) in die Datenbank übernommen – inklusive allem, was du vorher lokal im Browser eingetragen hast.
 - Keine Admin-Schlüssel oder Service-Account-Dateien landen im Repo.
