@@ -72,8 +72,10 @@ export function nextOccurrence(items, todayYmd, { includeToday = true } = {}) {
   return next ? { ...next, tageBis: daysBetween(todayYmd, next.datum) } : null;
 }
 
+export const isPaused = (item, todayYmd) => !!item.pausiert && (!item.pausiertBis || todayYmd <= item.pausiertBis);
+
 export function monthlySum(items, todayYmd) {
-  return items.filter((i) => !i.pausiert && isActive(i, todayYmd)).reduce((s, i) => s + (i.betrag || 0), 0);
+  return items.filter((i) => !isPaused(i, todayYmd) && isActive(i, todayYmd)).reduce((s, i) => s + (i.betrag || 0), 0);
 }
 
 export function planReserve({ balance, todayYmd, rules, reserve = 0, horizonDays = HORIZON_DAYS }) {

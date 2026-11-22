@@ -1,4 +1,5 @@
 import { esc, euro, shortDate, weekdayDate, monthLabel, headerDate, goalDateLabel, inDays, workMinutes } from './ui/format.js';
+import { toolsRow, monthlyCheckCard, roundUpCard } from './tool-views.js';
 
 const RING = 2 * Math.PI * 40;
 
@@ -70,11 +71,14 @@ export function overview(snap, d, { now = new Date() } = {}) {
     <div class="sub" style="margin:0">${esc(headerDate(now))}</div>
     <h1>Hey ${esc(snap.profile?.name || 'David')}</h1>
     ${d.pending.map(confirmCard).join('')}
+    ${d.monthlyCheck ? monthlyCheckCard(d) : ''}
     <div class="card hero">
       <div class="label">Gesamt gespart</div>
       <div class="big num" data-count="${d.balance}" data-suffix=" <small>€</small>">0 <small>€</small></div>
       ${goalBlock}
     </div>
+    ${toolsRow(d)}
+    ${roundUpCard(d)}
     ${d.reserve.ziel && !d.reserve.voll ? `<div class="card reserve-mini"><div class="xp-head"><div class="label">Notfalltopf wird gefüllt</div><span class="num xp-num">${euro(d.reserve.betrag)} / ${euro(d.reserve.ziel)}</span></div><div class="bar"><i data-w="${Math.max(2, Math.round(d.reserve.fortschritt * 100))}"></i></div></div>` : ''}
     <div class="grid2">
       ${tile('Nächster Zahltag', d.nextPayday ? shortDate(d.nextPayday.datum) : '–', d.nextPayday ? `+${euro(d.nextPayday.betrag)} · ${inDays(d.nextPayday.tageBis)}` : 'keine Einnahmen', false)}
@@ -192,6 +196,7 @@ export function profile(snap, d, { mode, user, syncPending }) {
     <div class="card">
       <div class="toggle">Roast-Modus <button class="sw ${snap.profile?.settings?.roast !== false ? 'on' : ''}" data-setting="roast" aria-label="Roast-Modus"></button></div>
       <div class="toggle">Sounds <button class="sw ${snap.profile?.settings?.sounds ? 'on' : ''}" data-setting="sounds" aria-label="Sounds"></button></div>
+      <div class="toggle"><span>Virtuelles Aufrunden<small class="toggle-hint">${snap.profile?.settings?.aufrunden ? `auf volle ${snap.profile.settings.aufrundenStufe || 1} € · <button class="link" data-roundup-step>ändern</button>` : 'Ausgaben aufrunden, Differenz sparen'}</small></span><button class="sw ${snap.profile?.settings?.aufrunden ? 'on' : ''}" data-setting="aufrunden" aria-label="Virtuelles Aufrunden"></button></div>
     </div>
     ${d.reached.length ? `<div class="card"><div class="label" style="margin-bottom:12px">Trophäen · ${d.reached.length}</div><div class="trophies">${d.reached.map((g) => `<button class="trophy" data-goal="${esc(g.id)}">${g.bildThumb ? `<img src="${esc(g.bildThumb)}" alt="">` : `<div class="trophy-fill" style="background:${esc(g.farbe || '#c9a24a')}">⛰</div>`}<span>${esc(g.name)}</span><em>Freigeschaltet</em></button>`).join('')}</div></div>` : ''}
     <div class="card">
@@ -214,7 +219,7 @@ export function profile(snap, d, { mode, user, syncPending }) {
       ${snap.fixed
         .map(
           (it) => `<div class="row fixed-row">
-            <button class="t" data-edit="fixed" data-id="${esc(it.id)}"><b>${esc(it.name)}</b><span>${it.pausiert ? 'pausiert' : it.tagImMonat ? `am ${it.tagImMonat}.` : 'monatlich'}</span></button>
+            <button class="t" data-edit="fixed" data-id="${esc(it.id)}"><b>${esc(it.name)}</b><span>${it.pausiert ? (it.pausiertBis ? `pausiert bis ${shortDate(it.pausiertBis)} ${it.pausiertBis.slice(0, 4)}` : 'pausiert') : it.tagImMonat ? `am ${it.tagImMonat}.` : 'monatlich'}</span></button>
             <div class="amt num ${it.pausiert ? 'muted strike' : ''}">−${euro(it.betrag)}</div>
             <button class="sw ${it.pausiert ? '' : 'on'}" data-toggle-fixed="${esc(it.id)}" aria-label="${esc(it.name)} ${it.pausiert ? 'fortsetzen' : 'pausieren'}"></button>
           </div>`

@@ -3,19 +3,22 @@ import './styles/app.css';
 import './styles/components.css';
 import './styles/rewards.css';
 import './styles/goals.css';
+import './styles/tools.css';
 import { createNav } from './ui/nav.js';
 import { createSheet, createToast } from './ui/sheet.js';
 import { formSheet } from './ui/forms.js';
 import { enableReorder } from './ui/reorder.js';
-import { esc, euro, workMinutes } from './ui/format.js';
+import { esc, euro, workMinutes, parseAmount, longDate } from './ui/format.js';
+import { calendarMonth, whatIf } from './logic/tools.js';
+import * as toolViews from './tool-views.js';
 import { makeGoalImages } from './ui/image.js';
 import { connectFirebase, isConfigured } from './firebase.js';
 import { createAuth, authMessage } from './auth.js';
-import { localBackend, cloudBackend, readLocal, newId } from './data/store.js';
+import { localBackend, cloudBackend, readLocal, newId, COLLECTIONS } from './data/store.js';
 import { defaultData, CATEGORIES, GOAL_COLORS } from './data/defaults.js';
 import { derive } from './logic/derive.js';
 import { dueBookings } from './logic/schedule.js';
-import { today } from './logic/dates.js';
+import { today, ymd } from './logic/dates.js';
 import { XP, ROASTS, PRAISE, randomOf, impulseDelayDays } from './logic/rewards.js';
 import { createFx } from './ui/fx.js';
 import * as views from './views.js';
@@ -524,7 +527,8 @@ const ITEM_FORMS = {
       { key: 'name', label: 'Name', required: true },
       { key: 'betrag', label: 'Betrag', type: 'amount', required: true },
       { key: 'tagImMonat', label: 'Tag im Monat', type: 'number', min: 1, max: 31, hint: 'optional' },
-      { key: 'pausiert', label: 'Pausiert', type: 'checkbox' }
+      { key: 'pausiert', label: 'Pausiert', type: 'checkbox' },
+      { key: 'pausiertBis', label: 'Pausiert bis', type: 'date', hint: 'optional, danach läuft es automatisch wieder' }
     ]
   },
   savingsRules: {
@@ -570,7 +574,252 @@ function openItem(col, item = null) {
   );
 }
 
-function openPotAdjust() {
+const endOfMonth = (months) => {
+  const d = new Date();
+  return ymd(new Date(d.getFullYear(), d.getMonth() + months, 0));
+};
+
+function openPause(item) {
+  sheet.open(
+    formSheet({
+      title: `${item.name} pausieren`,
+      fields: [{ key: 'dauer', label: 'Wie lange?', type: 'segments', options: [{ value: '1', label: 'Diesen Monat' }, { value: '2', label: '2 Monate' }, { value: '0', label: 'Bis ich es ändere' }] }],
+      values: { dauer: '1' },
+      submitLabel: 'Pausieren',
+      onSubmit: async ({ dauer }) => {
+        sheet.close();
+        const bis = dauer === '0' ? null : endOfMonth(Number(dauer));
+        await backend.update('fixed', item.id, { pausiert: true, pausiertBis: bis });
+        toast(`${item.name} pausiert${bis ? ` bis ${longDate(bis)}` : ''} · +${euro(item.betrag)} frei im Monat`);
+      }
+    })
+  );
+}
+
+async function award15(id, grund) {
+  if ((snap.xpLog || []).some((e) => e.id === id)) return;
+  await award(id, 15, grund);
+}
+
+async function monthlyCheck(kind) {
+  const id = `abgleich-${today().slice(0, 7)}`;
+  if (kind === 'ok') {
+    await backend.set('ledger', newId(), { datum: today(), typ: 'abgleich', betrag: derived.balance, erstellt: Date.now() });
+    await award15(id, 'Monatsabgleich');
+    fx.confetti(null, 60);
+    fx.sound('xp');
+    return toast('Abgeglichen · +15 XP');
+  }
+  openPotAdjust(() => award15(id, 'Monatsabgleich'));
+}
+
+function openRoundUpStep() {
+  sheet.open(
+    formSheet({
+      title: 'Aufrunden auf …',
+      fields: [{ key: 'stufe', label: 'Stufe', type: 'segments', options: [{ value: '1', label: 'volle 1 €' }, { value: '5', label: 'volle 5 €' }, { value: '10', label: 'volle 10 €' }] }],
+      values: { stufe: String(settings().aufrundenStufe || 1) },
+      onSubmit: async ({ stufe }) => {
+        sheet.close();
+        await backend.setProfile({ settings: { ...settings(), aufrundenStufe: Number(stufe) } });
+        toast(`Aufrunden auf volle ${stufe} €`);
+      }
+    })
+  );
+}
+
+async function roundUpDone() {
+  const betrag = derived.roundUp.betrag;
+  if (!(betrag > 0)) return;
+  await backend.set('ledger', newId(), { datum: today(), typ: 'einzahlung', betrag, quelle: 'aufrunden', erstellt: Date.now() });
+  await backend.setProfile({ aufrundenBis: Date.now() });
+  fx.confetti(null, 70);
+  fx.sound('win');
+  toast(`${euro(betrag, { cents: true })} aus dem Aufrunden-Topf gespart`);
+}
+
+let activeTool = null;
+
+function toolSheet(name, renderHtml, bind) {
+  const el = document.createElement('div');
+  el.className = `tool-sheet tool-${name}`;
+  const paint = () => {
+    el.innerHTML = renderHtml();
+    bind?.(el, paint);
+  };
+  paint();
+  activeTool = { name, paint };
+  sheet.open(el);
+  return el;
+}
+
+function openTool(name) {
+  if (name === 'kalender') return openCalendar();
+  if (name === 'wuensche') return openWishes();
+  if (name === 'wasware') return openWhatIf();
+  if (name === 'backup') return openBackup();
+}
+
+function openCalendar() {
+  const now = new Date();
+  let year = now.getFullYear();
+  let month = now.getMonth();
+  let selected = today();
+  toolSheet(
+    'kalender',
+    () => toolViews.calendarView(calendarMonth({ year, month, income: snap.income, savingsRules: snap.savingsRules, fixed: snap.fixed, expenses: snap.expenses, plan: derived.plan, todayYmd: today() }), selected),
+    (el, paint) => {
+      el.querySelectorAll('[data-cal]').forEach((b) =>
+        b.addEventListener('click', () => {
+          month += Number(b.dataset.cal);
+          if (month < 0) (month = 11), year--;
+          if (month > 11) (month = 0), year++;
+          selected = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+          paint();
+        })
+      );
+      el.querySelectorAll('[data-day]').forEach((b) =>
+        b.addEventListener('click', () => {
+          selected = b.dataset.day;
+          paint();
+        })
+      );
+    }
+  );
+}
+
+function openWishes() {
+  toolSheet(
+    'wuensche',
+    () => toolViews.wishesView(derive(snap, today(), { nowMs: Date.now() })),
+    (el, paint) => {
+      const form = el.querySelector('[data-wish-new]');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = form.name.value.trim();
+        const preis = parseAmount(form.preis.value);
+        const link = form.link.value.trim();
+        if (!name || !(preis > 0)) {
+          form.querySelector('.form-error').textContent = 'Name und Preis bitte';
+          return;
+        }
+        await backend.set('wishes', newId(), { name, preis, link: /^https?:\/\//.test(link) ? link : null, erstellt: Date.now(), status: 'wartet' });
+        toast('Auf der Liste – in 72 Stunden fragst du dich nochmal');
+        paint();
+      });
+      el.querySelectorAll('[data-wish-skip]').forEach((b) => b.addEventListener('click', () => resolveWish(b.dataset.wishSkip, 'verzichtet', b).then(paint)));
+      el.querySelectorAll('[data-wish-buy]').forEach((b) => b.addEventListener('click', () => resolveWish(b.dataset.wishBuy, 'gekauft', b)));
+      el.querySelectorAll('[data-wish-goal]').forEach((b) => b.addEventListener('click', () => resolveWish(b.dataset.wishGoal, 'ziel', b)));
+    }
+  );
+}
+
+async function resolveWish(id, kind, button) {
+  const wish = snap.wishes.find((w) => w.id === id);
+  if (!wish) return;
+  if (kind === 'verzichtet') {
+    await backend.update('wishes', id, { status: 'verzichtet', erledigt: Date.now() });
+    await award(`wish-${id}`, 20, 'Wunsch widerstanden');
+    fx.confetti(button, 90);
+    fx.sound('win');
+    toast(`Stark! ${euro(wish.preis, { cents: true })} nicht ausgegeben · +20 XP`);
+    return;
+  }
+  if (kind === 'ziel') {
+    const open = snap.goals.filter((g) => !g.erreichtAm);
+    await backend.set('goals', newId(), { name: wish.name, kosten: wish.preis, farbe: GOAL_COLORS[open.length % GOAL_COLORS.length], reihenfolge: Math.max(0, ...open.map((g) => g.reihenfolge || 0)) + 1 });
+    await backend.update('wishes', id, { status: 'verzichtet', erledigt: Date.now(), alsZiel: true });
+    await award(`wish-${id}`, 20, 'Wunsch als Ziel geplant');
+    sheet.close();
+    nav.go(2);
+    return toast(`${wish.name} ist jetzt ein Ziel – Termin ist berechnet`);
+  }
+  await backend.update('wishes', id, { status: 'gekauft', erledigt: Date.now() });
+  sheet.close();
+  openExpense(null, { haendler: wish.name, betrag: wish.preis, kategorie: guessCategory(wish.name) });
+}
+
+function openWhatIf() {
+  const state = { extraMonthly: 0, oneTime: 0 };
+  const results = () => whatIf({ balance: derived.balance, todayYmd: today(), rules: snap.savingsRules, goals: snap.goals, reserve: derived.reserve.ziel, ...state });
+  toolSheet(
+    'wasware',
+    () => toolViews.whatIfView(results(), state),
+    (el, paint) => {
+      el.querySelectorAll('[data-whatif]').forEach((input) =>
+        input.addEventListener('change', () => {
+          state[input.dataset.whatif] = Number(input.value);
+          paint();
+        })
+      );
+      el.querySelectorAll('[data-whatif]').forEach((input) =>
+        input.addEventListener('input', () => {
+          const b = input.parentElement.querySelector('b');
+          const v = Number(input.value);
+          b.textContent = `${input.dataset.whatif === 'extraMonthly' && v > 0 ? '+' : ''}${euro(v)}`;
+        })
+      );
+      el.querySelectorAll('[data-preset]').forEach((b) =>
+        b.addEventListener('click', () => {
+          if (b.dataset.preset === 'rewe') state.extraMonthly = 60;
+          if (b.dataset.preset === 'tr') state.extraMonthly = 100;
+          if (b.dataset.preset === 'zero') Object.assign(state, { extraMonthly: 0, oneTime: 0 });
+          paint();
+        })
+      );
+    }
+  );
+}
+
+function openBackup() {
+  toolSheet(
+    'backup',
+    () => toolViews.backupView({ lastBackup: snap.profile?.letztesBackup }),
+    (el) => {
+      const msg = el.querySelector('[data-backup-msg]');
+      el.querySelector('[data-backup="export"]').addEventListener('click', async () => {
+        const data = backend.exportAll();
+        delete data.ready;
+        delete data.syncPending;
+        delete data.goalImages;
+        const blob = new Blob([JSON.stringify({ app: 'finanzplaner', version: 1, erstellt: new Date().toISOString(), daten: data }, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `finanzplaner-backup-${today()}.json`;
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        await backend.setProfile({ letztesBackup: today() });
+        toast('Backup gespeichert');
+      });
+      el.querySelector('[data-backup="import"]').addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try {
+          const parsed = JSON.parse(await file.text());
+          const data = parsed?.daten;
+          if (parsed?.app !== 'finanzplaner' || !data) throw new Error('Das ist kein Finanzplaner-Backup');
+          let count = 0;
+          for (const col of COLLECTIONS) {
+            const docs = (data[col] || []).filter((d) => d && d.id);
+            if (docs.length) await backend.setMany(col, docs);
+            count += docs.length;
+          }
+          if (data.profile) await backend.setProfile(data.profile);
+          msg.textContent = '';
+          sheet.close();
+          toast(`Backup eingespielt · ${count} Einträge`);
+        } catch (err) {
+          msg.textContent = err.message || 'Datei konnte nicht gelesen werden';
+        }
+      });
+    }
+  );
+}
+
+function openPotAdjust(onDone) {
   sheet.open(
     formSheet({
       title: 'Stand laut PayPal',
@@ -580,8 +829,10 @@ function openPotAdjust() {
       onSubmit: async (data) => {
         if (!Number.isFinite(data.betrag) || data.betrag < 0) return;
         sheet.close();
+        const diff = Math.round((data.betrag - derived.balance) * 100) / 100;
         await backend.set('ledger', newId(), { datum: today(), typ: 'abgleich', betrag: data.betrag, erstellt: Date.now() });
-        toast(`Spar-Topf auf ${euro(data.betrag, { cents: true })} gesetzt`);
+        await onDone?.();
+        toast(`Spar-Topf auf ${euro(data.betrag, { cents: true })} gesetzt${diff ? ` (${diff > 0 ? '+' : '−'}${euro(Math.abs(diff), { cents: true })})` : ''}`);
       }
     })
   );
@@ -594,11 +845,17 @@ pagesEl.addEventListener('click', async (e) => {
   if (t.dataset.confirm) return confirmTransfer(t);
   if (t.dataset.setting) {
     const key = t.dataset.setting;
-    const on = key === 'roast' ? settings().roast === false : !settings().sounds;
-    await backend.setProfile({ settings: { ...settings(), [key]: on } });
+    const on = key === 'roast' ? settings().roast === false : !settings()[key];
+    const extra = key === 'aufrunden' && on ? { aufrundenSeit: Date.now(), aufrundenStufe: settings().aufrundenStufe || 1 } : {};
+    await backend.setProfile({ settings: { ...settings(), [key]: on, ...extra } });
     if (key === 'sounds' && on) fx.sound('xp');
-    return toast(`${key === 'roast' ? 'Roast-Modus' : 'Sounds'} ${on ? 'an' : 'aus'}`);
+    const names = { roast: 'Roast-Modus', sounds: 'Sounds', aufrunden: 'Aufrunden' };
+    return toast(`${names[key]} ${on ? 'an' : 'aus'}`);
   }
+  if (t.dataset.roundupStep !== undefined) return openRoundUpStep();
+  if (t.dataset.roundupDone !== undefined) return roundUpDone();
+  if (t.dataset.tool) return openTool(t.dataset.tool);
+  if (t.dataset.monthly) return monthlyCheck(t.dataset.monthly);
   if (t.id === 'rewe-btn') return openExpense(null, { haendler: 'Rewe', kategorie: 'Lebensmittel' });
   if (t.dataset.expense) return openExpense(snap.expenses.find((x) => x.id === t.dataset.expense));
   if (t.dataset.goal) return openGoal(snap.goals.find((g) => g.id === t.dataset.goal));
@@ -607,8 +864,11 @@ pagesEl.addEventListener('click', async (e) => {
   if (t.dataset.edit) return openItem(t.dataset.edit, snap[t.dataset.edit].find((x) => x.id === t.dataset.id));
   if (t.dataset.toggleFixed) {
     const item = snap.fixed.find((x) => x.id === t.dataset.toggleFixed);
-    await backend.update('fixed', item.id, { pausiert: !item.pausiert });
-    return toast(`${item.name} ${item.pausiert ? 'läuft wieder' : 'pausiert'}`);
+    if (item.pausiert && !(item.pausiertBis && item.pausiertBis < today())) {
+      await backend.update('fixed', item.id, { pausiert: false, pausiertBis: null });
+      return toast(`${item.name} läuft wieder`);
+    }
+    return openPause(item);
   }
   if (t.id === 'pot-adjust') return openPotAdjust();
   if (t.id === 'reserve-set') return openReserve(false);

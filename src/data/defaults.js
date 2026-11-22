@@ -40,6 +40,7 @@ export function defaultData(startDatum) {
     expenses: [],
     xpLog: [],
     achievements: [],
+    wishes: [],
     ledger: [{ id: 'start', datum: startDatum, typ: 'abgleich', betrag: 0 }]
   };
 }

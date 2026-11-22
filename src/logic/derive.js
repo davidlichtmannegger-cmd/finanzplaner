@@ -1,7 +1,8 @@
 import { planGoals, planReserve, potBalance, nextOccurrence, monthlySum } from './schedule.js';
 import { levelFor, totalXp, streak, dailyQuests, weekChallenge, pendingConfirmations, taschengeld, achievementState, daysSinceRewe, isRewe, weekStart } from './rewards.js';
+import { wishState, resistedSum, roundUpPot, monthlyCheckDue } from './tools.js';
 
-export function derive(snap, todayYmd, { hour = 12, visitedGoals = false } = {}) {
+export function derive(snap, todayYmd, { hour = 12, visitedGoals = false, nowMs = Date.now() } = {}) {
   const balance = potBalance(snap.ledger || []);
   const reserveZiel = Math.max(0, Number(snap.profile?.notfall) || 0);
   const plan = planGoals({ balance, todayYmd, rules: snap.savingsRules || [], goals: snap.goals || [], reserve: reserveZiel });
@@ -56,6 +57,13 @@ export function derive(snap, todayYmd, { hour = 12, visitedGoals = false } = {})
     week: weekChallenge({ todayYmd, expenses, xpLog: snap.xpLog, startDatum: snap.profile?.startDatum }),
     pending: pendingConfirmations(snap.ledger || [], todayYmd),
     taschengeld: taschengeld(level.level, expenses),
-    achievements
+    achievements,
+    wishes: (snap.wishes || []).map((w) => wishState(w, nowMs)).sort((a, b) => (b.offen - a.offen) || (b.erstellt || 0) - (a.erstellt || 0)),
+    openWishes: (snap.wishes || []).filter((w) => !w.status || w.status === 'wartet').length,
+    resisted: resistedSum(snap.wishes || []),
+    roundUp: snap.profile?.settings?.aufrunden
+      ? { ...roundUpPot(expenses, { seit: snap.profile.settings.aufrundenSeit || 0, bis: snap.profile.aufrundenBis || 0, step: snap.profile.settings.aufrundenStufe || 1 }), aktiv: true }
+      : { betrag: 0, anzahl: 0, aktiv: false },
+    monthlyCheck: monthlyCheckDue(snap.ledger || [], todayYmd) && todayYmd > (snap.profile?.startDatum || '') && Number(todayYmd.slice(8)) <= 10
   };
 }
