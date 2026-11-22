@@ -1,0 +1,22 @@
+:root {
+  --bg: #050706;
+  --surface: #0e1311;
+  --surface2: #151c19;
+  --line: #1f2925;
+  --fg: #eef4f0;
+  --muted: #7d8c85;
+  --neon: #39ff88;
+  --neon-dim: rgba(57, 255, 136, 0.14);
+  --neon-glow: rgba(57, 255, 136, 0.6);
+  --gold: #c9a24a;
+  --gold-deep: #a8822f;
+  --red: #ff5a5f;
+  --on-neon: #04140a;
+  --display: "Sora", -apple-system, "SF Pro Display", system-ui, sans-serif;
+  --body: "Inter", -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --radius-card: 22px;
+  --radius-sheet: 28px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --app-max: 430px;
+  color-scheme: dark;
+}
