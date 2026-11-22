@@ -1,0 +1,22 @@
+{
+  "name": "finanzplaner",
+  "version": "1.0.0",
+  "description": "Davids Finanzplaner",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test"
+  },
+  "type": "module",
+  "devDependencies": {
+    "vite": "^8.3.8"
+  },
+  "dependencies": {
+    "firebase": "^13.4.0"
+  },
+  "private": true
+}
