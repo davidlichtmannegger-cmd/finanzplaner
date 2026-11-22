@@ -4,6 +4,7 @@ import './styles/components.css';
 import './styles/rewards.css';
 import './styles/goals.css';
 import './styles/tools.css';
+import './styles/mountain.css';
 import { createNav } from './ui/nav.js';
 import { createSheet, createToast } from './ui/sheet.js';
 import { formSheet } from './ui/forms.js';
@@ -11,6 +12,7 @@ import { enableReorder } from './ui/reorder.js';
 import { esc, euro, workMinutes, parseAmount, longDate } from './ui/format.js';
 import { calendarMonth, whatIf } from './logic/tools.js';
 import * as toolViews from './tool-views.js';
+import { createMountain } from './mountain/index.js';
 import { makeGoalImages } from './ui/image.js';
 import { connectFirebase, isConfigured } from './firebase.js';
 import { createAuth, authMessage } from './auth.js';
@@ -42,6 +44,9 @@ const painted = new Set();
 const lastCount = new Map();
 const savingAchievements = new Set();
 
+const mountain = createMountain({ reduceMotion });
+document.addEventListener('visibilitychange', () => mountain.setActive(nav.current === 2 && !document.hidden));
+
 const fx = createFx({ canvas: $('#fx'), host: $('#app'), reduceMotion, soundsOn: () => snap?.profile?.settings?.sounds === true });
 
 const visitedKey = () => `finanzplaner:ziele-besucht:${today()}`;
@@ -57,6 +62,7 @@ const nav = createNav({
   pages: pagesEl,
   tabs: [...document.querySelectorAll('.tab')],
   onChange: (i) => {
+    mountain.setActive(i === 2 && !document.hidden);
     if (i !== 2) return;
     animate($('#page-goals'), 'goals', true);
     if (!visitedGoals()) {
@@ -153,6 +159,9 @@ function render() {
   autoBook();
   celebrate();
   celebrateReady();
+  mountain.mount($('#mountain-slot'));
+  mountain.update(snap, derived, today());
+  mountain.setActive(nav.current === 2 && !document.hidden);
 }
 
 async function autoBook() {

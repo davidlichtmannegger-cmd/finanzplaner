@@ -164,6 +164,7 @@ export function goals(snap, d) {
   return `
     <h1>Ziele</h1>
     <div class="sub">Sparrate ${euro(d.savingsSum)} im Monat · Termine rechnen sich automatisch</div>
+    <div id="mountain-slot"></div>
     ${reserveNote}
     <div id="goal-list">${cards || `<div class="card empty"><div class="ico">${ICON.peak}</div><div>Noch keine offenen Ziele.</div></div>`}</div>
     <button class="ghost wide" id="goal-add">+ Neues Ziel</button>
