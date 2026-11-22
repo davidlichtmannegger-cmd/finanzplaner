@@ -1,7 +1,7 @@
 import { defaultData } from './defaults.js';
 import { today } from '../logic/dates.js';
 
-export const COLLECTIONS = ['income', 'fixed', 'savingsRules', 'goals', 'expenses', 'ledger', 'xpLog', 'achievements'];
+export const COLLECTIONS = ['income', 'fixed', 'savingsRules', 'goals', 'expenses', 'ledger', 'xpLog', 'achievements', 'wishes'];
 
 export const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
 

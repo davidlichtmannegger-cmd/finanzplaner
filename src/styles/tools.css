@@ -1,0 +1,96 @@
+.tools { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+.tools .tool {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 4px 10px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  font: 600 11px var(--body);
+  cursor: pointer;
+}
+.tools .tool:active { transform: scale(0.96); }
+.tool-ico { font-size: 22px; line-height: 1; }
+.tools .tool em {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--neon);
+  color: var(--on-neon);
+  font: 700 11px var(--body);
+  display: grid;
+  place-items: center;
+}
+
+.tool-sheet { display: flex; flex-direction: column; gap: 10px; }
+.toggle small.toggle-hint, .toggle-hint { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.toggle-hint .link { font-size: 12px; padding: 0; }
+
+.cal-nav { display: flex; justify-content: space-between; align-items: center; }
+.cal-nav b { font: 700 17px var(--display); }
+.cal-nav .mini { font-size: 18px; padding: 4px 14px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-h { text-align: center; font-size: 11px; color: var(--muted); font-weight: 600; padding: 4px 0; }
+.cal-c {
+  aspect-ratio: 1;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: var(--surface2);
+  color: var(--fg);
+  font: 600 13px var(--body);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  cursor: pointer;
+  padding: 0;
+}
+.cal-c.empty { background: none; cursor: default; }
+.cal-c.today { border-color: var(--neon); color: var(--neon); }
+.cal-c.sel { background: var(--neon-dim); border-color: rgba(57, 255, 136, 0.5); }
+.dots { display: flex; gap: 2px; min-height: 5px; }
+.dots i, .cal-legend i, .dot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+.dot { width: 8px; height: 8px; margin-right: 6px; vertical-align: 1px; }
+.ev-in { background: var(--neon); }
+.ev-save { background: #5ab0ff; }
+.ev-fix { background: var(--red); }
+.ev-goal { background: var(--gold); }
+.ev-spent { background: var(--muted); }
+.cal-legend { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; font-size: 11px; color: var(--muted); }
+.cal-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.cal-legend i { width: 7px; height: 7px; }
+.cal-day { background: var(--surface2); border-radius: 16px; padding: 12px 14px; }
+.cal-day .label { margin-bottom: 4px; }
+
+.resisted { text-align: center; padding: 10px; border-radius: 14px; background: var(--neon-dim); color: var(--neon); font-size: 14px; }
+.wish-new { display: flex; flex-direction: column; gap: 8px; }
+.wish-row { display: grid; grid-template-columns: 1fr 1.6fr; gap: 8px; }
+.wish-list { display: flex; flex-direction: column; gap: 10px; }
+.wish { padding: 14px; border-radius: 18px; border: 1px solid var(--line); background: var(--surface2); }
+.wish.free { border-color: rgba(57, 255, 136, 0.45); }
+.wish-top { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; }
+.wish-link { font-size: 12px; color: var(--neon); }
+.lock { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--muted); }
+.wish-actions { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 6px; }
+.wish-actions .cta { padding: 12px; font-size: 14px; }
+.wish-actions .ghost { padding: 10px 6px; font-size: 13px; }
+
+.range-row { display: flex; align-items: center; gap: 12px; }
+.range-row input[type="range"] { flex: 1; accent-color: var(--neon); height: 28px; }
+.range-row b { min-width: 76px; text-align: right; font-size: 16px; }
+.whatif-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.whatif-row span { display: flex; flex-direction: column; color: var(--fg); }
+.whatif-row span b { font-size: 14px; font-weight: 600; }
+.whatif-row span small { font-size: 12px; color: var(--muted); }
+.whatif-row em { font-style: normal; font-weight: 600; font-size: 13px; white-space: nowrap; align-self: center; }
+
+.roundup .num.neon { font-size: 15px; }
+.monthly { border-color: rgba(90, 176, 255, 0.45); background: radial-gradient(120% 120% at 0% 0%, rgba(90, 176, 255, 0.12), transparent 60%), var(--surface); }
