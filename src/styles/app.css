@@ -1,8 +1,10 @@
 * { box-sizing: border-box; }
 
-html, body { height: 100%; margin: 0; }
+html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
 
 body {
+  position: fixed;
+  inset: 0;
   background: var(--bg);
   color: var(--fg);
   font-family: var(--body);
@@ -21,6 +23,7 @@ button { font: inherit; color: inherit; }
   width: 100%;
   max-width: var(--app-max);
   height: 100%;
+  height: 100dvh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -30,7 +33,7 @@ button { font: inherit; color: inherit; }
 @media (min-width: 600px) {
   body { padding-block: 24px; background: #020302; }
   .app {
-    height: min(900px, 100%);
+    height: min(900px, calc(100dvh - 48px));
     border-radius: 44px;
     border: 1px solid var(--line);
     box-shadow: 0 0 0 8px #0b0f0d, 0 30px 80px rgba(0, 0, 0, 0.6);
@@ -38,8 +41,10 @@ button { font: inherit; color: inherit; }
 }
 
 .pages {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
+  align-items: stretch;
   width: 400%;
   transition: transform 0.45s var(--ease);
   touch-action: pan-y;
@@ -47,8 +52,10 @@ button { font: inherit; color: inherit; }
 
 .page {
   width: 25%;
-  height: 100%;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
   padding: calc(18px + env(safe-area-inset-top, 0px)) 18px 110px;
   scrollbar-width: none;
 }

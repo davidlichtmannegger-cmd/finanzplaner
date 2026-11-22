@@ -1,11 +1,16 @@
 import { defaultData } from './defaults.js';
 import { today } from '../logic/dates.js';
 
-export const COLLECTIONS = ['income', 'fixed', 'savingsRules', 'goals', 'expenses', 'ledger'];
+export const COLLECTIONS = ['income', 'fixed', 'savingsRules', 'goals', 'expenses', 'ledger', 'xpLog', 'achievements'];
 
 export const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
 
 const LOCAL_KEY = 'finanzplaner:data:v1';
+
+export const normalize = (data) => {
+  for (const col of COLLECTIONS) if (!Array.isArray(data[col])) data[col] = [];
+  return data;
+};
 
 export function readLocal(storage = globalThis.localStorage) {
   try {
@@ -17,7 +22,7 @@ export function readLocal(storage = globalThis.localStorage) {
 }
 
 export function localBackend({ storage = globalThis.localStorage, now = () => new Date() } = {}) {
-  let data = readLocal(storage) || defaultData(today(now()));
+  let data = normalize(readLocal(storage) || defaultData(today(now())));
   const listeners = new Set();
   const persist = () => {
     try {
@@ -31,7 +36,7 @@ export function localBackend({ storage = globalThis.localStorage, now = () => ne
   persist();
   globalThis.addEventListener?.('storage', (e) => {
     if (e.key !== LOCAL_KEY || !e.newValue) return;
-    data = JSON.parse(e.newValue);
+    data = normalize(JSON.parse(e.newValue));
     emit();
   });
   const commit = () => {

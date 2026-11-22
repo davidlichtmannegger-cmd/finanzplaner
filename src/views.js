@@ -9,6 +9,36 @@ const ICON = {
   peak: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 20l6-11 4 6 3-4 5 9z"/></svg>'
 };
 
+const confirmCard = (e) => `
+  <div class="card confirm" data-ledger="${esc(e.id)}">
+    <div class="label">Dauerauftrag vom ${esc(shortDate(e.datum))}</div>
+    <b>Überweisung erledigt?</b>
+    <div class="hint" style="margin:4px 0 12px">${euro(e.betrag)} → PayPal-Spar-Topf</div>
+    <div class="confirm-actions"><button class="cta" data-confirm="yes" data-id="${esc(e.id)}">Ja, erledigt · +50 XP</button><button class="ghost" data-confirm="no" data-id="${esc(e.id)}">Nein</button></div>
+  </div>`;
+
+const questRow = (q) => {
+  const state = { claimed: 'done', ready: 'ready', failed: 'failed', open: '' }[q.status];
+  const note = q.status === 'open' ? q.hint : q.status === 'failed' ? 'heute leider verpasst' : q.status === 'ready' ? 'Antippen zum Abholen' : 'geschafft';
+  return `<div class="quest ${q.status}">
+    <button class="check ${state}" ${q.status === 'ready' ? `data-claim="${esc(q.id)}" data-xp="${q.xp}"` : 'disabled'} aria-label="${esc(q.text)}"></button>
+    <p>${esc(q.text)}<span>${esc(note)}</span></p>
+    <em>+${q.xp} XP</em>
+  </div>`;
+};
+
+const weekCard = (w) => {
+  const pct = w.unit === '€' ? Math.min(100, (w.value / (w.limit + 1)) * 100) : w.limit === 0 ? (w.value ? 100 : 0) : Math.min(100, (w.value / w.limit) * 100);
+  const status = { claimed: 'geschafft 🎉', failed: 'diesmal nicht geschafft', ready: 'heute abholbar!', warmup: 'Probewoche – zählt ab Montag', open: w.daysLeft === 1 ? 'noch 1 Tag' : `noch ${w.daysLeft} Tage` }[w.status];
+  return `<div class="card week ${w.status}">
+    <div class="xp-head"><div class="label">Wochen-Challenge</div><em class="neon">+${w.xp} XP</em></div>
+    <b>${esc(w.text)}</b>
+    <div class="bar ${w.status === 'failed' ? 'bad' : ''}"><i data-w="${Math.max(2, Math.round(pct))}"></i></div>
+    <div class="meta-row"><span class="num">${w.value}${w.unit === '€' ? ' €' : ''} / ${w.limit === 0 ? '0' : w.unit === '€' ? `${w.limit + 1} €` : w.limit} ${w.unit === '€' ? '' : esc(w.unit)}</span><span>${status}</span></div>
+    ${w.status === 'ready' ? `<button class="cta" style="margin-top:12px" data-claim="${esc(w.id)}" data-xp="${w.xp}">Belohnung abholen</button>` : ''}
+  </div>`;
+};
+
 const initials = (s) => esc((s || '?').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 2).toUpperCase() || '?');
 
 export function overview(snap, d, { now = new Date() } = {}) {
@@ -34,6 +64,7 @@ export function overview(snap, d, { now = new Date() } = {}) {
   return `
     <div class="sub" style="margin:0">${esc(headerDate(now))}</div>
     <h1>Hey ${esc(snap.profile?.name || 'David')}</h1>
+    ${d.pending.map(confirmCard).join('')}
     <div class="card hero">
       <div class="label">Gesamt gespart</div>
       <div class="big num" data-count="${d.balance}" data-suffix=" <small>€</small>">0 <small>€</small></div>
@@ -42,9 +73,18 @@ export function overview(snap, d, { now = new Date() } = {}) {
     <div class="grid2">
       ${tile('Nächster Zahltag', d.nextPayday ? shortDate(d.nextPayday.datum) : '–', d.nextPayday ? `+${euro(d.nextPayday.betrag)} · ${inDays(d.nextPayday.tageBis)}` : 'keine Einnahmen', false)}
       ${tile('Dauerauftrag', d.nextTransfer ? shortDate(d.nextTransfer.datum) : '–', d.nextTransfer ? `${euro(d.nextTransfer.betrag)} → PayPal` : 'keiner angelegt', false)}
-      ${tile(`Ausgaben ${esc(monthLabel(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`).split(' ')[0])}`, euro(d.monthSpent), `${d.monthCount} Einträge`, false)}
-      ${tile('Rewe-Besuche', String(d.reweCount), 'diesen Monat', d.reweCount === 0)}
+      ${tile('Streak', `${d.streak} ${d.streak === 1 ? 'Tag' : 'Tage'}`, 'ohne Impulskauf', d.streak >= 7)}
+      ${tile('Rewe-Besuche', String(d.reweWeek), `diese Woche · ${d.reweCount} im Monat`, d.reweWeek === 0)}
     </div>
+    <div class="card">
+      <div class="xp-head"><div class="label">Level ${d.level.level} · ${esc(d.level.name)}</div><span class="num xp-num">${d.level.into} / ${d.level.needed} XP</span></div>
+      <div class="bar xpbar"><i data-w="${Math.max(2, Math.round(d.level.progress * 100))}"></i></div>
+    </div>
+    <div class="card">
+      <div class="label" style="margin-bottom:6px">Tägliche Quests</div>
+      ${d.quests.map(questRow).join('')}
+    </div>
+    ${weekCard(d.week)}
     <div class="card">
       <div class="label" style="margin-bottom:6px">Monat im Überblick</div>
       <div class="kv"><span>Einnahmen</span><b class="num">+${euro(d.incomeSum)}</b></div>
@@ -128,8 +168,20 @@ export function profile(snap, d, { mode, user, syncPending }) {
     <h1>Profil</h1>
     <div class="sub">${mode === 'cloud' ? `Angemeldet als ${esc(user?.email || '')}` : 'Lokaler Modus – Daten nur auf diesem Gerät'}</div>
     <div class="card level">
-      <div class="lvl">${snap.profile?.level || 1}</div>
-      <div><b style="font-size:18px">Spar-Neuling</b><div class="sub" style="margin:2px 0 0">${snap.profile?.xp || 0} XP · Belohnungen kommen in Etappe 2</div></div>
+      <div class="lvl">${d.level.level}</div>
+      <div><b style="font-size:18px">${esc(d.level.name)}</b><div class="sub" style="margin:2px 0 0">${d.xp} XP · noch ${d.level.needed - d.level.into} XP bis Level ${d.level.level + 1}</div></div>
+    </div>
+    <div class="card">
+      <div class="label section-head">Taschengeld<span class="num neon">${euro(d.taschengeld.frei, { cents: true })} frei</span></div>
+      <p class="hint" style="margin-bottom:0">Jeder Level-Aufstieg schaltet 5 € frei. Ausgaben „aus Taschengeld“ kosten keine XP und brechen keinen Streak.${d.taschengeld.used ? ` Schon genutzt: ${euro(d.taschengeld.used, { cents: true })}.` : ''}</p>
+    </div>
+    <div class="card">
+      <div class="label" style="margin-bottom:12px">Erfolge · ${d.achievements.filter((a) => a.unlocked).length}/${d.achievements.length}</div>
+      <div class="ach">${d.achievements.map((a) => `<div class="${a.unlocked ? 'on' : 'off'}"><b>${esc(a.icon)}</b>${esc(a.label)}</div>`).join('')}</div>
+    </div>
+    <div class="card">
+      <div class="toggle">Roast-Modus <button class="sw ${snap.profile?.settings?.roast !== false ? 'on' : ''}" data-setting="roast" aria-label="Roast-Modus"></button></div>
+      <div class="toggle">Sounds <button class="sw ${snap.profile?.settings?.sounds ? 'on' : ''}" data-setting="sounds" aria-label="Sounds"></button></div>
     </div>
     <div class="card">
       <div class="label section-head">Spar-Topf (PayPal)<span class="num">${euro(d.balance, { cents: true })}</span></div>

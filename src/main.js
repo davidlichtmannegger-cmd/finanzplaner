@@ -1,6 +1,7 @@
 import './styles/tokens.css';
 import './styles/app.css';
 import './styles/components.css';
+import './styles/rewards.css';
 import { createNav } from './ui/nav.js';
 import { createSheet, createToast } from './ui/sheet.js';
 import { formSheet } from './ui/forms.js';
@@ -13,6 +14,8 @@ import { defaultData, CATEGORIES, GOAL_COLORS } from './data/defaults.js';
 import { derive } from './logic/derive.js';
 import { dueBookings } from './logic/schedule.js';
 import { today } from './logic/dates.js';
+import { XP, ROASTS, PRAISE, randomOf, impulseDelayDays } from './logic/rewards.js';
+import { createFx } from './ui/fx.js';
 import * as views from './views.js';
 
 const $ = (selector) => document.querySelector(selector);
@@ -29,16 +32,62 @@ let derived = null;
 let user = null;
 let auth = null;
 let booking = false;
+let lastLevel = null;
 const painted = new Set();
 const lastCount = new Map();
+const savingAchievements = new Set();
+
+const fx = createFx({ canvas: $('#fx'), host: $('#app'), reduceMotion, soundsOn: () => snap?.profile?.settings?.sounds === true });
+
+const visitedKey = () => `finanzplaner:ziele-besucht:${today()}`;
+const visitedGoals = () => {
+  try {
+    return localStorage.getItem(visitedKey()) === '1';
+  } catch {
+    return false;
+  }
+};
 
 const nav = createNav({
   pages: pagesEl,
   tabs: [...document.querySelectorAll('.tab')],
   onChange: (i) => {
-    if (i === 2) animate($('#page-goals'), 'goals', true);
+    if (i !== 2) return;
+    animate($('#page-goals'), 'goals', true);
+    if (!visitedGoals()) {
+      try {
+        localStorage.setItem(visitedKey(), '1');
+      } catch {}
+      setTimeout(render, 500);
+    }
   }
 });
+
+const settings = () => snap?.profile?.settings || {};
+
+async function award(id, betrag, grund) {
+  await backend.set('xpLog', id, { datum: today(), betrag, grund, erstellt: Date.now() });
+}
+
+function celebrate() {
+  if (!derived) return;
+  const level = derived.level.level;
+  if (lastLevel !== null && level > lastLevel) {
+    fx.fireworks(5);
+    fx.sound('level');
+    toast(`Level ${level}: ${derived.level.name}! +5 € Taschengeld`);
+  }
+  lastLevel = level;
+  const fresh = derived.achievements.filter((a) => a.unlocked && !a.stored && !savingAchievements.has(a.id));
+  if (!fresh.length) return;
+  fresh.forEach((a) => savingAchievements.add(a.id));
+  Promise.all(fresh.map((a) => backend.set('achievements', a.id, { freigeschaltetAm: today() }))).finally(() => fresh.forEach((a) => savingAchievements.delete(a.id)));
+  setTimeout(() => {
+    fx.confetti(null, 120);
+    fx.sound('win');
+    toast(fresh.length === 1 ? `Erfolg freigeschaltet: ${fresh[0].icon} ${fresh[0].label}` : `${fresh.length} Erfolge freigeschaltet!`);
+  }, 600);
+}
 
 const PAGES = [
   ['overview', '#page-overview'],
@@ -85,7 +134,7 @@ function animate(root, key, force = false) {
 
 function render() {
   if (!snap?.ready || !snap.profile) return;
-  derived = derive(snap, today());
+  derived = derive(snap, today(), { hour: new Date().getHours(), visitedGoals: visitedGoals() });
   const ctx = { mode: backend.mode, user, syncPending: snap.syncPending };
   for (const [name, sel] of PAGES) {
     const el = $(sel);
@@ -97,6 +146,7 @@ function render() {
   const list = $('#goal-list');
   if (list) enableReorder(list, { itemSelector: '.goal', handleSelector: '.handle', onDrop: reorderGoals });
   autoBook();
+  celebrate();
 }
 
 async function autoBook() {
@@ -117,6 +167,7 @@ function attach(next) {
   backend?.close?.();
   backend = next;
   painted.clear();
+  lastLevel = null;
   unsubscribe = backend.subscribe((s) => {
     snap = s;
     render();
@@ -133,22 +184,32 @@ const guessCategory = (name) => {
   return 'Sonstiges';
 };
 
+const expenseXp = (doc) => (doc.taschengeld ? 0 : doc.impuls ? XP.impulse : XP.expense);
+
 function openExpense(existing = null, preset = {}) {
   const values = existing || { datum: today(), impuls: false, ...preset, kategorie: preset.kategorie || guessCategory(preset.haendler) };
   const merchants = [...new Set((snap.expenses || []).map((e) => e.haendler).filter(Boolean))].slice(0, 30);
+  const freeAllowance = derived.taschengeld.frei + (existing?.taschengeld ? existing.betrag : 0);
+  const fields = [
+    { key: 'betrag', label: 'Betrag', type: 'amount', big: true, required: true },
+    { key: 'haendler', label: 'Wofür?', placeholder: 'z. B. Rewe', list: merchants, required: true },
+    { key: 'kategorie', label: 'Kategorie', type: 'select', options: CATEGORIES },
+    { key: 'datum', label: 'Datum', type: 'date' },
+    { key: 'art', label: 'Art', type: 'segments', options: [{ value: 'noetig', label: 'Nötig' }, { value: 'impuls', label: 'Impulskauf' }] }
+  ];
+  if (freeAllowance > 0) fields.push({ key: 'taschengeld', label: `Aus Taschengeld bezahlen (${euro(freeAllowance, { cents: true })} frei)`, type: 'checkbox' });
   const form = formSheet({
     title: existing ? 'Ausgabe bearbeiten' : 'Neue Ausgabe',
-    fields: [
-      { key: 'betrag', label: 'Betrag', type: 'amount', big: true, required: true },
-      { key: 'haendler', label: 'Wofür?', placeholder: 'z. B. Rewe', list: merchants, required: true },
-      { key: 'kategorie', label: 'Kategorie', type: 'select', options: CATEGORIES },
-      { key: 'datum', label: 'Datum', type: 'date' },
-      { key: 'art', label: 'Art', type: 'segments', options: [{ value: 'noetig', label: 'Nötig' }, { value: 'impuls', label: 'Impulskauf' }] }
-    ],
+    fields,
     values: { ...values, art: values.impuls ? 'impuls' : 'noetig' },
     submitLabel: existing ? 'Speichern' : 'Eintragen',
     extraActions: existing ? [{ label: 'Löschen', danger: true, onClick: () => removeExpense(existing) }] : [],
     onSubmit: async (data) => {
+      const useAllowance = !!data.taschengeld && data.betrag <= freeAllowance;
+      if (data.taschengeld && !useAllowance) {
+        form.querySelector('.form-error').textContent = `Nur ${euro(freeAllowance, { cents: true })} Taschengeld frei`;
+        return;
+      }
       const id = existing?.id || newId();
       const doc = {
         betrag: data.betrag,
@@ -156,13 +217,39 @@ function openExpense(existing = null, preset = {}) {
         kategorie: data.kategorie,
         datum: data.datum || today(),
         impuls: data.art === 'impuls',
+        taschengeld: useAllowance,
         quelle: existing?.quelle || 'manuell',
         erstellt: existing?.erstellt || Date.now()
       };
       sheet.close();
       await backend.set('expenses', id, doc);
-      toast(existing ? 'Gespeichert' : `Eingetragen · ${workMinutes(doc.betrag)} Min. Arbeit`);
-      if (!existing) nav.go(1);
+      const xp = expenseXp(doc);
+      if (!existing || expenseXp(existing) !== xp) await award(`exp-${id}`, xp, doc.impuls ? 'Impulskauf' : 'Ausgabe eingetragen');
+      if (existing) {
+        toast('Gespeichert');
+        return;
+      }
+      nav.go(1);
+      if (doc.taschengeld) {
+        fx.sound('xp');
+        toast(`Aus Taschengeld bezahlt · gönn dir`);
+      } else if (doc.impuls) {
+        fx.sound('fail');
+        fx.buzz([20, 40, 20]);
+        const delay = impulseDelayDays(doc.betrag, derived.savingsSum);
+        toast(settings().roast !== false ? `${randomOf(ROASTS)} ${XP.label(XP.impulse)} XP` : `Impulskauf · ${XP.label(XP.impulse)} XP · Ziel ${delay.toFixed(1).replace('.', ',')} Tage später`);
+      } else {
+        fx.confetti($('#plus'), 40);
+        fx.sound('xp');
+        if (Math.random() < XP.bonusChance) {
+          await award(`bonus-${id}`, XP.bonus, 'Glücksbonus');
+          setTimeout(() => {
+            fx.confetti(null, 140);
+            fx.sound('win');
+            toast(`🍀 Glücksbonus! +${XP.bonus} XP`);
+          }, 700);
+        } else toast(`Eingetragen · +${XP.expense} XP · ${workMinutes(doc.betrag)} Min. Arbeit`);
+      }
     }
   });
   const nameInput = form.querySelector('[data-key="haendler"]');
@@ -170,13 +257,63 @@ function openExpense(existing = null, preset = {}) {
   nameInput.addEventListener('change', () => {
     if (!existing) catSelect.value = guessCategory(nameInput.value);
   });
+  const impact = document.createElement('div');
+  impact.className = 'impact';
+  form.querySelector('.segs').after(impact);
+  const updateImpact = () => {
+    const { betrag, art, taschengeld: fromAllowance } = form.read();
+    if (!(betrag > 0)) return (impact.innerHTML = '');
+    const goal = derived.nextGoal;
+    const delay = impulseDelayDays(betrag, derived.savingsSum);
+    const delayText = delay < 1 ? `${Math.max(1, Math.round(delay * 24))} Std.` : `${delay.toFixed(1).replace('.', ',')} Tage`;
+    impact.innerHTML =
+      art === 'impuls' && !fromAllowance
+        ? `= ${workMinutes(betrag)} Min. Arbeit · ${goal ? `${goal.name.split(' ')[0]} rückt` : 'Ziel rückt'} <b>${delayText}</b> nach hinten · ${XP.label(XP.impulse)} XP`
+        : `= ${workMinutes(betrag)} Min. Arbeit${fromAllowance ? ' · aus Taschengeld, ohne XP-Abzug' : ` · +${XP.expense} XP`}`;
+  };
+  form.addEventListener('input', updateImpact);
+  form.addEventListener('change', updateImpact);
+  updateImpact();
   sheet.open(form);
 }
 
 async function removeExpense(e) {
   sheet.close();
   await backend.remove('expenses', e.id);
+  await backend.remove('xpLog', `exp-${e.id}`);
+  await backend.remove('xpLog', `bonus-${e.id}`);
   toast(`${e.haendler || 'Ausgabe'} gelöscht`);
+}
+
+async function claim(button) {
+  const id = button.dataset.claim;
+  const xp = Number(button.dataset.xp);
+  if (!id || (snap.xpLog || []).some((e) => e.id === id)) return;
+  button.disabled = true;
+  fx.confetti(button, id.startsWith('week-') ? 120 : 60);
+  fx.sound(id.startsWith('week-') ? 'win' : 'xp');
+  fx.buzz(10);
+  await award(id, xp, id.startsWith('week-') ? 'Wochen-Challenge' : 'Quest');
+  toast(`+${xp} XP · ${randomOf(PRAISE)}`);
+}
+
+async function confirmTransfer(button) {
+  const entry = snap.ledger.find((e) => e.id === button.dataset.id);
+  if (!entry) return;
+  const yes = button.dataset.confirm === 'yes';
+  const card = button.closest('.confirm');
+  if (yes) {
+    fx.confetti(button, 110);
+    fx.sound('win');
+    await backend.update('ledger', entry.id, { bestaetigt: true });
+    await award(`transfer-${entry.id}`, XP.transferYes, 'Überweisung bestätigt');
+    toast(`Stark! +${XP.transferYes} XP · ${euro(entry.betrag)} im Topf`);
+  } else {
+    card?.classList.add('leaving');
+    await backend.update('ledger', entry.id, { uebersprungen: true, geplant: entry.betrag, betrag: 0 });
+    await award(`transfer-${entry.id}`, XP.transferNo, 'Ehrlich geantwortet');
+    toast(`Danke für die Ehrlichkeit · +${XP.transferNo} XP. Hol sie nach, wenn's geht.`);
+  }
 }
 
 function openGoal(goal = null) {
@@ -316,6 +453,15 @@ function openPotAdjust() {
 pagesEl.addEventListener('click', async (e) => {
   const t = e.target.closest('button');
   if (!t || !snap) return;
+  if (t.dataset.claim) return claim(t);
+  if (t.dataset.confirm) return confirmTransfer(t);
+  if (t.dataset.setting) {
+    const key = t.dataset.setting;
+    const on = key === 'roast' ? settings().roast === false : !settings().sounds;
+    await backend.setProfile({ settings: { ...settings(), [key]: on } });
+    if (key === 'sounds' && on) fx.sound('xp');
+    return toast(`${key === 'roast' ? 'Roast-Modus' : 'Sounds'} ${on ? 'an' : 'aus'}`);
+  }
   if (t.id === 'rewe-btn') return openExpense(null, { haendler: 'Rewe', kategorie: 'Lebensmittel' });
   if (t.dataset.expense) return openExpense(snap.expenses.find((x) => x.id === t.dataset.expense));
   if (t.dataset.goal) return openGoal(snap.goals.find((g) => g.id === t.dataset.goal));
@@ -372,7 +518,7 @@ function hideLogin() {
 }
 
 async function start() {
-  if (!isConfigured()) {
+  if (!isConfigured() || new URLSearchParams(location.search).has('lokal')) {
     attach(localBackend());
     return;
   }
