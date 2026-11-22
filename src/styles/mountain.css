@@ -40,6 +40,21 @@
   -webkit-backdrop-filter: blur(8px);
 }
 
+.mountain-top {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+  font-size: 12px;
+}
+.mountain-top span { padding: 4px 9px; border-radius: 99px; background: rgba(5, 7, 6, 0.55); color: var(--fg); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.mountain-top span:empty { display: none; }
+.mountain-card.full .mountain-top { top: calc(12px + env(safe-area-inset-top, 0px)); }
+
 .mountain-card.full {
   position: absolute;
   inset: 0;

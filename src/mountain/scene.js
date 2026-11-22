@@ -1,17 +1,20 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { positionAt, dayPhase, sunAngle } from '../logic/mountain.js';
+import { createWeatherFx, makeTrees, decorateClimber, SEASON_GROUND, SNOW_LINE } from './effects.js';
 
 const NEON = 0x39ff88;
 const GOLD = 0xc9a24a;
 
 const SKY = {
-  nacht: { top: 0x070b1c, bottom: 0x1a2a52, fog: 0x121c3a, sun: 0xa9b8ff, sunI: 0.75, hemi: 0.6, ground: 0x1a2a22 },
-  morgen: { top: 0x3b4f8a, bottom: 0xf4a46b, fog: 0xd99a7a, sun: 0xffc18a, sunI: 1.1, hemi: 0.7, ground: 0x2a3a2c },
-  tag: { top: 0x3f8fd8, bottom: 0xbfe3ff, fog: 0xb5d8f2, sun: 0xfff4e0, sunI: 1.6, hemi: 0.9, ground: 0x31503a },
-  abend: { top: 0x2c3e7a, bottom: 0xff9a5a, fog: 0xd9875f, sun: 0xffa060, sunI: 1.0, hemi: 0.65, ground: 0x2a3a2c },
-  daemmerung: { top: 0x101a3a, bottom: 0x5a3a6a, fog: 0x3a2f55, sun: 0xb08cff, sunI: 0.7, hemi: 0.55, ground: 0x1f2c24 }
+  nacht: { top: 0x070b1c, bottom: 0x1a2a52, fog: 0x121c3a, sun: 0xa9b8ff, sunI: 0.75, hemi: 0.6, dark: 0.55 },
+  morgen: { top: 0x3b4f8a, bottom: 0xf4a46b, fog: 0xd99a7a, sun: 0xffc18a, sunI: 1.1, hemi: 0.7, dark: 0.15 },
+  tag: { top: 0x3f8fd8, bottom: 0xbfe3ff, fog: 0xb5d8f2, sun: 0xfff4e0, sunI: 1.6, hemi: 0.9, dark: 0 },
+  abend: { top: 0x2c3e7a, bottom: 0xff9a5a, fog: 0xd9875f, sun: 0xffa060, sunI: 1.0, hemi: 0.65, dark: 0.15 },
+  daemmerung: { top: 0x101a3a, bottom: 0x5a3a6a, fog: 0x3a2f55, sun: 0xb08cff, sunI: 0.7, hemi: 0.55, dark: 0.4 }
 };
+
+const GREY_SKY = { top: 0x6f7c88, bottom: 0xb7c0c8 };
 
 const rand = (seed) => {
   let s = seed >>> 0 || 1;
@@ -20,7 +23,7 @@ const rand = (seed) => {
 
 const hashStr = (s) => [...String(s)].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261);
 
-function makePeak(p) {
+function makePeak(p, snowLine) {
   const radius = p.camp ? 3.2 : p.h * 0.72;
   const geo = new THREE.ConeGeometry(radius, p.h, 9, 5, false);
   const seed = hashStr(p.id);
@@ -40,13 +43,14 @@ function makePeak(p) {
       pos.setZ(i, pos.getZ(i) * s);
       pos.setY(i, y + (rnd() - 0.5) * 0.25);
     }
-    const c = p.camp ? grass.clone().lerp(rock, rel * 0.6) : rel > 0.72 ? snow : rel > 0.25 ? rock.clone().lerp(rockDark, rnd() * 0.6) : grass.clone().lerp(rock, rel * 2);
+    const c = p.camp ? grass.clone().lerp(rock, rel * 0.6) : rel > snowLine ? snow : rel > 0.25 ? rock.clone().lerp(rockDark, rnd() * 0.6) : grass.clone().lerp(rock, rel * 2);
     colors.push(c.r, c.g, c.b);
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(geo.toNonIndexed(), new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95 }));
-  mesh.geometry.computeVertexNormals();
+  const flat = geo.toNonIndexed();
+  flat.computeVertexNormals();
+  geo.dispose();
+  const mesh = new THREE.Mesh(flat, new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95 }));
   mesh.position.set(p.x, p.h / 2, p.z);
   return { mesh, radius };
 }
@@ -76,8 +80,8 @@ function makeLabel(text, color = '#eef4f0') {
   ctx.fillText(text, 24, 40, w - 48);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
-  sprite.scale.set((w / 76) * 0.55, 0.55, 1);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }));
+  sprite.scale.set((w / 76) * 0.042, 0.042, 1);
   sprite.renderOrder = 10;
   return sprite;
 }
@@ -125,8 +129,10 @@ function makeGround(len, seed) {
   const rnd = rand(seed);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) pos.setY(i, (rnd() - 0.5) * 0.7 - 0.05);
-  geo.computeVertexNormals();
-  return new THREE.Mesh(geo.toNonIndexed(), new THREE.MeshStandardMaterial({ color: 0x31503a, flatShading: true, roughness: 1 }));
+  const flat = geo.toNonIndexed();
+  flat.computeVertexNormals();
+  geo.dispose();
+  return new THREE.Mesh(flat, new THREE.MeshStandardMaterial({ color: 0x31503a, flatShading: true, roughness: 1 }));
 }
 
 function makeStars() {
@@ -158,8 +164,9 @@ function skyTexture(top, bottom) {
 }
 
 export function createMountainScene(host, { reduceMotion }) {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'low-power' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  const lowPower = (navigator.hardwareConcurrency || 4) <= 4 || /iPhone|iPad|Android/i.test(navigator.userAgent);
+  const renderer = new THREE.WebGLRenderer({ antialias: !lowPower, powerPreference: 'low-power' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lowPower ? 1.75 : 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   host.append(renderer.domElement);
 
@@ -176,9 +183,11 @@ export function createMountainScene(host, { reduceMotion }) {
 
   const hemi = new THREE.HemisphereLight(0xffffff, 0x223322, 0.8);
   const sun = new THREE.DirectionalLight(0xffffff, 1.4);
-  scene.add(hemi, sun, sun.target);
+  const lampLight = new THREE.PointLight(0xfff0c0, 0, 4, 1.6);
+  scene.add(hemi, sun, sun.target, lampLight);
   const stars = makeStars();
   scene.add(stars);
+  const weatherFx = createWeatherFx(scene);
 
   let world = new THREE.Group();
   scene.add(world);
@@ -188,6 +197,8 @@ export function createMountainScene(host, { reduceMotion }) {
 
   let route = null;
   let signature = '';
+  let gearSig = '';
+  let weatherSig = '';
   let peakData = [];
   let flags = [];
   let climberTarget = new THREE.Vector3();
@@ -196,26 +207,36 @@ export function createMountainScene(host, { reduceMotion }) {
   let userMoved = false;
   let active = false;
   let raf = 0;
-  let lastPhase = '';
+  let phase = '';
+  let season = 'herbst';
+  let weather = null;
   let lastFrame = 0;
+  let money = 0;
+  let slip = null;
+  let tour = null;
+  let hemiBase = 0.8;
 
-  controls.addEventListener('start', () => (userMoved = true));
+  controls.addEventListener('start', () => {
+    userMoved = true;
+    tour = null;
+  });
 
   const pointFor = (pos) => {
     if (!route || pos.index < 0) return new THREE.Vector3();
-    const p = route.peaks[pos.index];
-    const data = peakData[pos.index];
-    return spiralPoint(p, data.radius, pos.t);
+    return spiralPoint(route.peaks[pos.index], peakData[pos.index].radius, pos.t);
   };
 
-  const clearWorld = () => {
-    world.traverse((o) => {
+  const disposeTree = (obj) =>
+    obj.traverse((o) => {
       o.geometry?.dispose?.();
       if (o.material) [].concat(o.material).forEach((m) => {
         m.map?.dispose?.();
         m.dispose?.();
       });
     });
+
+  const clearWorld = () => {
+    disposeTree(world);
     scene.remove(world);
     world = new THREE.Group();
     scene.add(world);
@@ -231,14 +252,14 @@ export function createMountainScene(host, { reduceMotion }) {
     ground.position.x = len / 2;
     world.add(ground);
     world.userData.ground = ground;
+    world.add(makeTrees(route, season));
     route.peaks.forEach((p, i) => {
-      const { mesh, radius } = makePeak(p);
+      const { mesh, radius } = makePeak(p, SNOW_LINE[season]);
       world.add(mesh);
       peakData.push({ radius });
       const pts = [];
       for (let k = 0; k <= 40; k++) pts.push(spiralPoint(p, radius, k / 40));
-      const curve = new THREE.CatmullRomCurve3(pts);
-      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 80, 0.04, 4, false), new THREE.MeshBasicMaterial({ color: 0xe8e2d0, transparent: true, opacity: 0.75 }));
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 80, 0.04, 4, false), new THREE.MeshBasicMaterial({ color: 0xe8e2d0, transparent: true, opacity: 0.75 }));
       world.add(tube);
       if (i < route.peaks.length - 1) {
         const next = route.peaks[i + 1];
@@ -247,8 +268,7 @@ export function createMountainScene(host, { reduceMotion }) {
         const b = spiralPoint(next, nr, 0);
         const mid = a.clone().lerp(b, 0.5);
         mid.y = Math.max(0.3, Math.min(a.y, b.y) * 0.35);
-        const link = new THREE.Mesh(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, mid, b), 30, 0.03, 4, false), new THREE.MeshBasicMaterial({ color: 0xe8e2d0, transparent: true, opacity: 0.4 }));
-        world.add(link);
+        world.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, mid, b), 30, 0.03, 4, false), new THREE.MeshBasicMaterial({ color: 0xe8e2d0, transparent: true, opacity: 0.4 })));
       }
       const flag = makeFlag(p.camp ? 0x5ab0ff : new THREE.Color(p.farbe || GOLD).getHex());
       flag.position.set(p.x, p.h + 0.05, p.z);
@@ -266,31 +286,50 @@ export function createMountainScene(host, { reduceMotion }) {
       h.lookAt(new THREE.Vector3(pt.x, pt.y - 0.12, pt.z + 5));
       world.add(h);
     }
+    const x0 = route.peaks[0]?.x ?? 0;
+    weatherFx.set(weather, { x0, x1: len }, lowPower);
+  }
+
+  function setGear(gear) {
+    const sig = gear.map((g) => g.id).join(',');
+    if (sig === gearSig) return;
+    gearSig = sig;
+    for (const [old, make] of [[climber, () => makeClimber(NEON)], [ghost, () => makeClimber(0xffffff, 0.35)]]) {
+      const next = decorateClimber(make(), gear, { opacity: old === ghost ? 0.35 : 1 });
+      next.position.copy(old.position);
+      next.visible = old.visible;
+      scene.remove(old);
+      disposeTree(old);
+      scene.add(next);
+      if (old === climber) climber = next;
+      else ghost = next;
+    }
   }
 
   function applySky(now = new Date()) {
-    const phase = dayPhase(now.getHours(), now.getMinutes());
-    if (phase === lastPhase) return;
-    lastPhase = phase;
+    phase = dayPhase(now.getHours(), now.getMinutes());
     const s = SKY[phase];
+    const grey = weather && ['regen', 'gewitter', 'nebel', 'schnee'].includes(weather.typ) && (phase === 'tag' || phase === 'morgen' || phase === 'abend');
+    const top = grey ? GREY_SKY.top : s.top;
+    const bottom = grey ? GREY_SKY.bottom : s.bottom;
     scene.background?.dispose?.();
-    scene.background = skyTexture(s.top, s.bottom);
-    scene.fog = new THREE.Fog(s.fog, 28, 120);
-    hemi.color.set(s.top).lerp(new THREE.Color(0xffffff), 0.5);
-    hemi.groundColor.set(s.ground);
-    hemi.intensity = s.hemi;
+    scene.background = skyTexture(top, bottom);
+    const fogOverride = weatherFx.fogDensity();
+    const fogColor = grey ? new THREE.Color(GREY_SKY.bottom) : new THREE.Color(s.fog);
+    scene.fog = new THREE.Fog(fogColor, fogOverride?.near ?? 28, fogOverride?.far ?? 120);
+    hemi.color.set(top).lerp(new THREE.Color(0xffffff), 0.5);
+    const groundColor = new THREE.Color(SEASON_GROUND[season]).lerp(new THREE.Color(0x0b120f), s.dark);
+    hemi.groundColor.copy(groundColor);
+    hemiBase = s.hemi * (grey ? 0.85 : 1);
+    hemi.intensity = hemiBase;
     sun.color.set(s.sun);
-    sun.intensity = s.sunI;
-    stars.visible = phase === 'nacht' || phase === 'daemmerung';
-    world.userData.ground?.material.color.set(s.ground);
-  }
-
-  function placeSun(now = new Date()) {
+    sun.intensity = s.sunI * (grey ? 0.45 : 1);
+    stars.visible = (phase === 'nacht' || phase === 'daemmerung') && !(weather && weather.wolken > 70);
+    world.userData.ground?.material.color.copy(groundColor);
+    const night = phase === 'nacht' || phase === 'daemmerung';
     const a = sunAngle(now.getHours(), now.getMinutes());
-    const cx = focus.x;
-    const night = lastPhase === 'nacht' || lastPhase === 'daemmerung';
-    sun.position.set(cx + (night ? -15 : Math.cos(a) * 40), night ? 30 : Math.max(6, Math.sin(a) * 50), 25);
-    sun.target.position.set(cx, 0, 0);
+    sun.position.set(focus.x + (night ? -15 : Math.cos(a) * 40), night ? 30 : Math.max(6, Math.sin(a) * 50), 25);
+    sun.target.position.set(focus.x, 0, 0);
   }
 
   function resize() {
@@ -299,7 +338,7 @@ export function createMountainScene(host, { reduceMotion }) {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    if (route && !userMoved) frameCamera(true);
+    if (route && !userMoved && !tour) frameCamera(true);
   }
 
   function frameCamera(snap = false) {
@@ -312,23 +351,59 @@ export function createMountainScene(host, { reduceMotion }) {
     }
   }
 
+  function slipFactor(t) {
+    if (!slip) return 0;
+    const e = (t - slip.start) / 2600;
+    if (e >= 1) {
+      slip = null;
+      return 0;
+    }
+    return e < 0.18 ? e / 0.18 : 1 - (e - 0.18) / 0.82;
+  }
+
   function loop(t) {
     raf = requestAnimationFrame(loop);
-    if (t - lastFrame < 30) return;
+    const dt = Math.min(0.1, (t - lastFrame) / 1000);
+    if (t - lastFrame < (lowPower ? 33 : 25)) return;
     lastFrame = t;
-    const k = reduceMotion.matches ? 1 : 0.06;
-    climber.position.lerp(climberTarget, k);
+    const k = reduceMotion.matches ? 1 : 0.07;
+    if (slip && route) {
+      const f = slipFactor(t);
+      climberTarget = pointFor(positionAt(route, money - slip.amount * f));
+    } else if (route) climberTarget = pointFor(positionAt(route, money));
+    climber.position.lerp(climberTarget, slip ? 0.25 : k);
     ghost.position.lerp(ghostTarget, k);
     const bob = reduceMotion.matches ? 0 : Math.sin(t / 260) * 0.03;
     climber.children[0].position.y = 0.32 + bob;
     climber.children[1].position.y = 0.64 + bob;
-    flags.forEach((f, i) => (f.userData.cloth.rotation.y = Math.sin(t / 500 + i) * 0.25));
-    if (!userMoved) {
-      const desired = climberTarget.clone().add(new THREE.Vector3(2.5, 1.2, 0));
-      controls.target.lerp(desired, 0.05);
-      focus.copy(controls.target);
+    flags.forEach((f, i) => (f.userData.cloth.rotation.y = Math.sin(t / (weather?.wind > 25 ? 220 : 500) + i) * 0.25));
+    const flash = reduceMotion.matches ? 0 : weatherFx.tick(dt, t);
+    hemi.intensity = hemiBase + flash * 2.2;
+    const night = phase === 'nacht' || phase === 'daemmerung';
+    const lamp = climber.getObjectByName('lamp');
+    lampLight.intensity = lamp && night ? 2.2 : 0;
+    if (lamp) lampLight.position.copy(climber.position).add(new THREE.Vector3(0, 0.75, 0.3));
+    if (tour) {
+      const e = Math.min(1, (t - tour.start) / tour.ms);
+      const ang = tour.from + e * Math.PI * 2;
+      camera.position.set(tour.center.x + Math.cos(ang) * tour.r, tour.center.y + 2 + Math.sin(e * Math.PI) * 2.5, tour.center.z + Math.sin(ang) * tour.r);
+      controls.target.copy(tour.center);
+      camera.lookAt(tour.center);
+      flags[tour.index] && (flags[tour.index].scale.setScalar(1 + Math.sin(e * Math.PI) * 0.8));
+      if (e >= 1) {
+        flags[tour.index]?.scale.setScalar(1);
+        tour = null;
+        userMoved = false;
+        frameCamera(true);
+      }
+    } else {
+      if (!userMoved) {
+        const desired = climberTarget.clone().add(new THREE.Vector3(2.5, 1.2, 0));
+        controls.target.lerp(desired, 0.05);
+        focus.copy(controls.target);
+      }
+      controls.update();
     }
-    controls.update();
     renderer.render(scene, camera);
   }
 
@@ -338,17 +413,25 @@ export function createMountainScene(host, { reduceMotion }) {
   applySky();
 
   return {
-    update({ route: nextRoute, money, ghostMoney, huts }) {
-      const sig = JSON.stringify([nextRoute.peaks.map((p) => [p.id, p.kosten, p.name, p.farbe]), huts.map((h) => h.money)]);
+    update({ route: nextRoute, money: m, ghostMoney, huts, season: nextSeason, weather: nextWeather, gear }) {
+      season = nextSeason || season;
+      const wSig = nextWeather ? `${nextWeather.typ}:${Math.round((nextWeather.wolken || 0) / 20)}:${Math.round((nextWeather.wind || 0) / 10)}` : 'none';
+      const weatherChanged = wSig !== weatherSig;
+      weatherSig = wSig;
+      weather = nextWeather || null;
+      const sig = JSON.stringify([season, nextRoute.peaks.map((p) => [p.id, p.kosten, p.name, p.farbe]), huts.map((h) => h.money)]);
       const rebuilt = sig !== signature;
       if (rebuilt) {
         signature = sig;
         build(nextRoute, huts);
+      } else if (weatherChanged) {
+        const len = route.peaks.length ? route.peaks.at(-1).x : 0;
+        weatherFx.set(weather, { x0: route.peaks[0]?.x ?? 0, x1: len }, lowPower);
       }
-      const pos = positionAt(route, money);
-      const gpos = positionAt(route, ghostMoney);
-      climberTarget = pointFor(pos);
-      ghostTarget = pointFor(gpos);
+      setGear(gear || []);
+      money = m;
+      climberTarget = pointFor(positionAt(route, money));
+      ghostTarget = pointFor(positionAt(route, ghostMoney));
       ghost.visible = ghostMoney - money >= 1 && route.peaks.length > 0;
       climber.visible = route.peaks.length > 0;
       if (rebuilt) {
@@ -357,12 +440,24 @@ export function createMountainScene(host, { reduceMotion }) {
         frameCamera(true);
       }
       applySky();
-      placeSun();
       if (!active) renderer.render(scene, camera);
-      return { pos, gpos };
+    },
+    slip(amount) {
+      if (!route || reduceMotion.matches) return;
+      slip = { amount: Math.max(30, amount * 3), start: performance.now() };
+    },
+    celebrate(peakId) {
+      if (!route) return false;
+      const index = route.peaks.findIndex((p) => p.id === peakId);
+      if (index < 0) return false;
+      const p = route.peaks[index];
+      const center = new THREE.Vector3(p.x, p.h * 0.75, p.z);
+      tour = { index, center, r: p.h * 1.6 + 6, from: Math.PI / 2, start: performance.now(), ms: reduceMotion.matches ? 1 : 6500 };
+      return true;
     },
     recenter() {
       userMoved = false;
+      tour = null;
       frameCamera(true);
     },
     setActive(on) {
@@ -371,7 +466,7 @@ export function createMountainScene(host, { reduceMotion }) {
       if (on) {
         resize();
         applySky();
-        lastFrame = 0;
+        lastFrame = performance.now();
         raf = requestAnimationFrame(loop);
       } else cancelAnimationFrame(raf);
     },
@@ -379,6 +474,7 @@ export function createMountainScene(host, { reduceMotion }) {
     dispose() {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      weatherFx.dispose();
       clearWorld();
       renderer.dispose();
       renderer.domElement.remove();
