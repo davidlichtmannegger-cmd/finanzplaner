@@ -21,7 +21,7 @@ test('Lokales Backend startet mit Davids Startwerten und speichert Änderungen',
   await store.remove('expenses', 'e1');
   assert.equal(snap.expenses.length, 0);
   await store.setProfile({ settings: { roast: false } });
-  assert.deepEqual(snap.profile.settings, { roast: false, sounds: false, push: false });
+  assert.deepEqual(snap.profile.settings, { roast: false, sounds: true, push: false });
   assert.equal(readLocal(storage).fixed.find((f) => f.id === 'fix-tr').pausiert, true);
   const again = localBackend({ storage });
   let snap2;

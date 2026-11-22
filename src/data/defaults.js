@@ -11,7 +11,7 @@ export function defaultData(startDatum) {
       streak: 0,
       taschengeld: 0,
       startDatum,
-      settings: { roast: true, sounds: false, push: false }
+      settings: { roast: true, sounds: true, push: false }
     },
     income: [
       { id: 'inc-3', name: 'Einnahme am 3.', betrag: 200, tagImMonat: 3 },
@@ -38,6 +38,8 @@ export function defaultData(startDatum) {
       { id: 'goal-iphone', name: 'iPhone 19 Pro Max', kosten: 1500, reihenfolge: 6, farbe: GOAL_COLORS[5], fruehestens: '2027-09-01' }
     ],
     expenses: [],
+    xpLog: [],
+    achievements: [],
     ledger: [{ id: 'start', datum: startDatum, typ: 'abgleich', betrag: 0 }]
   };
 }
