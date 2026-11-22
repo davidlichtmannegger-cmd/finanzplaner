@@ -7,8 +7,10 @@ export const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.no
 
 const LOCAL_KEY = 'finanzplaner:data:v1';
 
+export const LAZY = ['goalImages'];
+
 export const normalize = (data) => {
-  for (const col of COLLECTIONS) if (!Array.isArray(data[col])) data[col] = [];
+  for (const col of [...COLLECTIONS, ...LAZY]) if (!Array.isArray(data[col])) data[col] = [];
   return data;
 };
 
@@ -76,6 +78,7 @@ export function localBackend({ storage = globalThis.localStorage, now = () => ne
       }
       return commit();
     },
+    getOne: (col, id) => Promise.resolve(structuredClone((data[col] || []).find((x) => x.id === id) || null)),
     setProfile(patch) {
       data.profile = { ...data.profile, ...patch, settings: { ...data.profile.settings, ...(patch.settings || {}) } };
       return commit();
@@ -144,6 +147,10 @@ export async function cloudBackend({ db, uid, seed }) {
       await batch.commit();
     },
     setProfile: (patch) => fs.setDoc(userRef, clean(patch), { merge: true }),
+    async getOne(col, id) {
+      const snap = await fs.getDoc(ref(col, id));
+      return snap.exists() ? { ...snap.data(), id: snap.id } : null;
+    },
     close: () => unsubs.forEach((u) => u()),
     exportAll: () => structuredClone(state)
   };

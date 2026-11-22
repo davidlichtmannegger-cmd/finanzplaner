@@ -2,11 +2,13 @@ import './styles/tokens.css';
 import './styles/app.css';
 import './styles/components.css';
 import './styles/rewards.css';
+import './styles/goals.css';
 import { createNav } from './ui/nav.js';
 import { createSheet, createToast } from './ui/sheet.js';
 import { formSheet } from './ui/forms.js';
 import { enableReorder } from './ui/reorder.js';
-import { euro, workMinutes } from './ui/format.js';
+import { esc, euro, workMinutes } from './ui/format.js';
+import { makeGoalImages } from './ui/image.js';
 import { connectFirebase, isConfigured } from './firebase.js';
 import { createAuth, authMessage } from './auth.js';
 import { localBackend, cloudBackend, readLocal, newId } from './data/store.js';
@@ -147,6 +149,7 @@ function render() {
   if (list) enableReorder(list, { itemSelector: '.goal', handleSelector: '.handle', onDrop: reorderGoals });
   autoBook();
   celebrate();
+  celebrateReady();
 }
 
 async function autoBook() {
@@ -316,38 +319,129 @@ async function confirmTransfer(button) {
   }
 }
 
+const bigImages = new Map();
+
+async function loadBigImage(goalId) {
+  if (bigImages.has(goalId)) return bigImages.get(goalId);
+  const doc = await backend.getOne('goalImages', goalId).catch(() => null);
+  bigImages.set(goalId, doc?.bild || null);
+  return doc?.bild || null;
+}
+
+function imagePicker(goal, progress) {
+  const box = document.createElement('div');
+  box.className = 'image-pick';
+  let pending;
+  const paint = (src) => {
+    box.innerHTML = src
+      ? `<div class="image-preview"><img src="${src}" alt="" style="filter:grayscale(${Math.round(100 - progress * 100)}%)"><span>${Math.round(progress * 100)} % farbig</span></div>`
+      : '<div class="image-empty">Noch kein Bild – es wird mit deinem Sparfortschritt von grau zu farbig.</div>';
+    box.insertAdjacentHTML(
+      'beforeend',
+      `<div class="image-actions"><label class="ghost file-btn">${src ? 'Bild ändern' : 'Bild hinzufügen'}<input type="file" accept="image/*" hidden></label>${src ? '<button type="button" class="ghost danger" data-remove-image>Entfernen</button>' : ''}</div><div class="form-error image-error"></div>`
+    );
+    box.querySelector('input[type=file]').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      box.querySelector('.image-error').textContent = 'Bild wird verkleinert …';
+      try {
+        pending = await makeGoalImages(file);
+        paint(pending.bild);
+      } catch (err) {
+        box.querySelector('.image-error').textContent = err.message || 'Bild konnte nicht gelesen werden';
+      }
+    });
+    box.querySelector('[data-remove-image]')?.addEventListener('click', () => {
+      pending = null;
+      paint(null);
+    });
+  };
+  paint(goal?.bildThumb || null);
+  if (goal?.bildThumb) loadBigImage(goal.id).then((big) => big && pending === undefined && paint(big));
+  return { el: box, result: () => pending };
+}
+
+async function saveGoalImage(id, picked) {
+  if (picked === undefined) return {};
+  if (picked === null) {
+    bigImages.delete(id);
+    await backend.remove('goalImages', id);
+    return { bildThumb: null };
+  }
+  bigImages.set(id, picked.bild);
+  await backend.set('goalImages', id, { bild: picked.bild });
+  return { bildThumb: picked.thumb };
+}
+
 function openGoal(goal = null) {
   const open = (snap.goals || []).filter((g) => !g.erreichtAm);
+  const planned = derived.plan.find((g) => g.id === goal?.id);
   const actions = [];
   if (goal && !goal.erreichtAm) actions.push({ label: 'Als gekauft markieren', onClick: () => markBought(goal) });
   if (goal?.erreichtAm) actions.push({ label: 'Kauf rückgängig', onClick: () => undoBought(goal) });
   if (goal) actions.push({ label: 'Ziel löschen', danger: true, onClick: () => removeGoal(goal) });
-  sheet.open(
-    formSheet({
-      title: goal ? 'Ziel bearbeiten' : 'Neues Ziel',
-      fields: [
-        { key: 'name', label: 'Name', required: true, placeholder: 'z. B. PS5 Pro + GTA 6' },
-        { key: 'kosten', label: 'Kosten', type: 'amount', required: true },
-        { key: 'fruehestens', label: 'Nicht vor', type: 'date', hint: 'optional, z. B. Erscheinungstermin' },
-        { key: 'farbe', label: 'Farbe', type: 'swatches', options: GOAL_COLORS }
-      ],
-      values: goal || { farbe: GOAL_COLORS[open.length % GOAL_COLORS.length] },
-      extraActions: actions,
-      onSubmit: async (data) => {
-        sheet.close();
-        if (goal) await backend.update('goals', goal.id, { name: data.name, kosten: data.kosten, fruehestens: data.fruehestens || null, farbe: data.farbe });
-        else await backend.set('goals', newId(), { name: data.name, kosten: data.kosten, fruehestens: data.fruehestens || null, farbe: data.farbe, reihenfolge: Math.max(0, ...open.map((g) => g.reihenfolge || 0)) + 1 });
-        toast(goal ? 'Ziel gespeichert' : 'Ziel angelegt – Termin ist berechnet');
-      }
-    })
-  );
+  const picker = imagePicker(goal, goal?.erreichtAm ? 1 : planned?.fortschritt || 0);
+  const form = formSheet({
+    title: goal ? 'Ziel bearbeiten' : 'Neues Ziel',
+    fields: [
+      { key: 'name', label: 'Name', required: true, placeholder: 'z. B. PS5 Pro + GTA 6' },
+      { key: 'kosten', label: 'Kosten', type: 'amount', required: true },
+      { key: 'fruehestens', label: 'Nicht vor', type: 'date', hint: 'optional, z. B. Erscheinungstermin' },
+      { key: 'farbe', label: 'Farbe', type: 'swatches', options: GOAL_COLORS }
+    ],
+    values: goal || { farbe: GOAL_COLORS[open.length % GOAL_COLORS.length] },
+    extraActions: actions,
+    onSubmit: async (data) => {
+      const id = goal?.id || newId();
+      const base = { name: data.name, kosten: data.kosten, fruehestens: data.fruehestens || null, farbe: data.farbe };
+      sheet.close();
+      const image = await saveGoalImage(id, picker.result());
+      if (goal) await backend.update('goals', id, { ...base, ...image, ...(goal.kosten !== data.kosten ? { bereitGefeiert: false } : {}) });
+      else await backend.set('goals', id, { ...base, ...image, reihenfolge: Math.max(0, ...open.map((g) => g.reihenfolge || 0)) + 1 });
+      toast(goal ? 'Ziel gespeichert' : 'Ziel angelegt – Termin ist berechnet');
+    }
+  });
+  form.querySelector('.field').after(picker.el);
+  sheet.open(form);
+}
+
+function reveal(goal, src) {
+  const host = $('#reveal');
+  host.innerHTML = `
+    <div class="reveal-card">
+      <div class="reveal-label">Gipfel erreicht</div>
+      ${src ? `<img class="reveal-img" src="${src}" alt="">` : `<div class="reveal-img reveal-color" style="background:${goal.farbe || 'var(--gold)'}">⛰</div>`}
+      <h2>${esc(goal.name)}</h2>
+      <p class="sub">${euro(goal.kosten)} zusammengespart – das Bild wandert in deine Trophäensammlung.</p>
+      <button class="cta" data-close-reveal>Weiter</button>
+    </div>`;
+  host.hidden = false;
+  requestAnimationFrame(() => requestAnimationFrame(() => host.classList.add('show')));
+  host.querySelector('[data-close-reveal]').addEventListener('click', () => {
+    host.classList.remove('show');
+    setTimeout(() => {
+      host.hidden = true;
+      host.innerHTML = '';
+    }, 300);
+  });
+  setTimeout(() => {
+    if (goal.kosten > 100) fx.fireworks(6);
+    fx.confetti(null, 160);
+    fx.sound('level');
+  }, 400);
 }
 
 async function markBought(goal) {
   sheet.close();
-  await backend.set('ledger', `kauf-${goal.id}`, { datum: today(), typ: 'entnahme', betrag: goal.kosten, goalId: goal.id, erstellt: Date.now() });
+  const src = goal.bildThumb ? (await loadBigImage(goal.id)) || goal.bildThumb : null;
+  const planned = derived.plan.find((g) => g.id === goal.id);
+  const fromPot = Math.round((planned ? planned.zugeteilt : goal.kosten) * 100) / 100;
+  reveal(goal, src);
+  await backend.set('ledger', `kauf-${goal.id}`, { datum: today(), typ: 'entnahme', betrag: fromPot, goalId: goal.id, erstellt: Date.now() });
+  if (fromPot < goal.kosten) setTimeout(() => toast(`Aus dem Spar-Topf: ${euro(fromPot)} – den Rest hast du anders bezahlt`), 2600);
   await backend.update('goals', goal.id, { erreichtAm: today() });
-  toast(`${goal.name} gekauft – Glückwunsch!`);
+  await backend.remove('goalImages', goal.id);
+  bigImages.delete(goal.id);
 }
 
 async function undoBought(goal) {
@@ -360,7 +454,50 @@ async function undoBought(goal) {
 async function removeGoal(goal) {
   sheet.close();
   await backend.remove('goals', goal.id);
+  await backend.remove('goalImages', goal.id);
+  bigImages.delete(goal.id);
   toast(`${goal.name} gelöscht`);
+}
+
+const celebratingReady = new Set();
+
+function celebrateReady() {
+  const ready = derived.plan.filter((g) => g.fortschritt >= 1 && !g.bereitGefeiert && !celebratingReady.has(g.id));
+  if (!ready.length) return;
+  ready.forEach((g) => celebratingReady.add(g.id));
+  const [first] = ready;
+  Promise.all(ready.map((g) => backend.update('goals', g.id, { bereitGefeiert: true }))).finally(() => ready.forEach((g) => celebratingReady.delete(g.id)));
+  setTimeout(() => {
+    if (first.kosten > 100) fx.fireworks(3);
+    fx.confetti(null, 120);
+    fx.sound('win');
+    toast(`${first.name} ist bezahlbar! Markier es als gekauft, sobald du es hast.`);
+  }, 900);
+}
+
+function openReserve(take = false) {
+  sheet.open(
+    formSheet({
+      title: take ? 'Aus dem Notfalltopf nehmen' : 'Notfalltopf',
+      fields: [{ key: 'betrag', label: take ? 'Betrag' : 'Höhe des Notfalltopfs (0 = aus)', type: 'amount', big: true }],
+      values: { betrag: take ? '' : snap.profile?.notfall || 300 },
+      submitLabel: take ? 'Entnehmen' : 'Speichern',
+      onSubmit: async (data) => {
+        if (take) {
+          if (!(data.betrag > 0) || data.betrag > derived.reserve.betrag) {
+            sheet.close();
+            return toast(`Im Notfalltopf sind ${euro(derived.reserve.betrag, { cents: true })}`);
+          }
+          sheet.close();
+          await backend.set('ledger', newId(), { datum: today(), typ: 'entnahme', betrag: data.betrag, notfall: true, erstellt: Date.now() });
+          return toast(`${euro(data.betrag, { cents: true })} entnommen – der Topf füllt sich mit den nächsten Daueraufträgen wieder`);
+        }
+        sheet.close();
+        await backend.setProfile({ notfall: Number.isFinite(data.betrag) ? Math.max(0, data.betrag) : 0 });
+        toast(data.betrag > 0 ? `Notfalltopf: ${euro(data.betrag)} – Termine neu berechnet` : 'Notfalltopf ausgeschaltet');
+      }
+    })
+  );
 }
 
 async function reorderGoals(ids) {
@@ -474,6 +611,8 @@ pagesEl.addEventListener('click', async (e) => {
     return toast(`${item.name} ${item.pausiert ? 'läuft wieder' : 'pausiert'}`);
   }
   if (t.id === 'pot-adjust') return openPotAdjust();
+  if (t.id === 'reserve-set') return openReserve(false);
+  if (t.id === 'reserve-take') return openReserve(true);
   if (t.id === 'logout') {
     await auth?.logout();
     toast('Abgemeldet');
